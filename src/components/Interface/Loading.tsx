@@ -20,7 +20,7 @@ export function Loading({ progress, onEnter }: { progress: number; onEnter: () =
           Enter the studio
         </button>
         <p className="loading-note">
-          Demo credits only — no real money, deposits or withdrawals. Sound starts when you enter.
+          Chaos Credits are fictional — no real money, deposits or withdrawals. Sound starts when you enter.
           <br />
           Session seed {SESSION_SEED}
         </p>

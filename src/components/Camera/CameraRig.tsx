@@ -14,12 +14,12 @@ export interface Shot {
 }
 
 const SHOTS = {
-  front: { pos: [0.9, 3.3, 14.2], target: [0.9, 2.75, 0], fov: 38 },
-  elevated: { pos: [-3.6, 7.6, 13.4], target: [0.6, 2.6, -1], fov: 38 },
-  wheelClose: { pos: [0.5, 3.6, 8.4], target: [0.2, 3.3, -1.4], fov: 40 },
+  front: { pos: [0, 3.3, 15.6], target: [0, 2.6, 0], fov: 38 },
+  elevated: { pos: [-3.2, 7.4, 14.6], target: [0, 2.5, -1], fov: 38 },
+  wheelClose: { pos: [0, 3.6, 9.4], target: [0, 3.3, -1.4], fov: 40 },
   pointer: { pos: [0.75, 5.9, 3.3], target: [0, 5.75, -1.3], fov: 36, speed: 1.5 },
   bonus: { pos: [-4.8, 1.5, 9], target: [0.6, 3.6, -1], fov: 44, speed: 2.4 },
-  victory: { pos: [3.6, 2.6, 11.5], target: [1.9, 2.5, -0.5], fov: 40 },
+  victory: { pos: [2.4, 2.6, 12.5], target: [0.8, 2.6, -0.5], fov: 40 },
 } satisfies Record<string, Shot>
 
 /** Picks the cinematic shot for the current moment of the round. */

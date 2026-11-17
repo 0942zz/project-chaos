@@ -140,7 +140,7 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--gold); outl
 .slider { display: grid; grid-template-columns: 70px 1fr 28px; align-items: center; gap: 10px; font-size: 13px; margin-bottom: 10px; }
 .slider em { font-style: normal; color: var(--muted); font-variant-numeric: tabular-nums; text-align: right; font-size: 12px; }
 input[type='range'] { accent-color: var(--gold); width: 100%; }
-.seg { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; padding: 3px; border-radius: 9px; background: rgba(255, 255, 255, 0.06); }
+.seg { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; padding: 3px; border-radius: 9px; background: rgba(255, 255, 255, 0.06); }
 .seg button { padding: 7px 0; border-radius: 7px; font-size: 12px; font-weight: 700; text-transform: capitalize; color: var(--muted); }
 .seg button.on { background: var(--gold); color: #1c1303; }
 
@@ -389,3 +389,22 @@ input[type='range'] { accent-color: var(--gold); width: 100%; }
 @media (prefers-reduced-motion: reduce) {
   .banner, .pill, .spot.hit, .banner.jackpot .banner-main { animation: none; }
 }
+
+/* ───────── bonus HUD additions ───────── */
+.side { min-width: 120px; padding: 8px 18px; border-radius: 10px; border: 1px solid; transition: transform 0.3s, box-shadow 0.3s, opacity 0.3s; }
+.side small { display: block; font-size: 10px; font-weight: 700; letter-spacing: 0.2em; text-transform: uppercase; }
+.side strong { font-family: var(--display); font-weight: 700; font-size: 34px; line-height: 1.05; }
+.side.sun { color: #ffe39a; border-color: rgba(255, 215, 94, 0.5); background: rgba(255, 190, 60, 0.1); }
+.side.moon { color: #d5ddff; border-color: rgba(160, 180, 255, 0.5); background: rgba(120, 140, 255, 0.1); }
+.side.won { transform: scale(1.12); box-shadow: 0 0 26px -4px currentColor; }
+.bh-note { font-size: 10px; font-weight: 700; letter-spacing: 0.16em; text-transform: uppercase; color: var(--muted); }
+.btn-pointer {
+  font-family: var(--display); font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; font-size: 15px;
+  padding: 13px 26px; border-radius: 10px; color: var(--p);
+  border: 1px solid color-mix(in srgb, var(--p) 60%, transparent);
+  background: color-mix(in srgb, var(--p) 12%, transparent);
+  transition: transform 0.15s, filter 0.15s, opacity 0.2s, background 0.2s;
+}
+.btn-pointer:hover:not(:disabled) { transform: translateY(-1px); filter: brightness(1.2); }
+.btn-pointer:disabled { opacity: 0.3; }
+.btn-pointer.on, .btn-pointer.on:disabled { opacity: 1; color: #120c02; background: var(--p); }

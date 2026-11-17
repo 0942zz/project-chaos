@@ -11,7 +11,7 @@ import { createBeamMaterial, createLedWallMaterial } from '../../shaders'
 import { damp } from '../../utils/math'
 import { DISPLAY_FONT } from '../../utils/textures'
 import { Confetti, GoldDust, Shockwave } from '../Effects/Ambient'
-import { Presenter } from '../Presenter/Presenter'
+import { Hosts } from '../Presenter/Presenter'
 import { WHEEL_POS, Wheel } from '../Wheel/Wheel'
 
 interface Mood {
@@ -397,8 +397,8 @@ export function Studio() {
         penumbra={0.7}
         intensity={600}
         color="#fff1dc"
-        castShadow={tier === 'high'}
-        shadow-mapSize={[2048, 2048]}
+        castShadow={tier !== 'low'}
+        shadow-mapSize={tier === 'ultra' ? [2048, 2048] : [1024, 1024]}
         shadow-bias={-0.0003}
       />
       <spotLight position={[-7, 9, 8]} target={target} angle={0.6} penumbra={1} intensity={260} color="#9db4ff" />
@@ -409,10 +409,10 @@ export function Studio() {
       {/* floor */}
       <mesh rotation-x={-Math.PI / 2} receiveShadow>
         <circleGeometry args={[42, 72]} />
-        {tier === 'high' ? (
+        {tier !== 'low' ? (
           <MeshReflectorMaterial
             blur={[320, 90]}
-            resolution={1024}
+            resolution={tier === 'ultra' ? 1024 : 512}
             mixBlur={1}
             mixStrength={26}
             roughness={0.9}
@@ -436,9 +436,9 @@ export function Studio() {
       <Sculpture position={[12.5, 4.2, 1.5]} color="#ff5cf0" />
 
       <Wheel />
-      <Presenter position={[4.35, 0.3, 0.9]} rotation-y={-0.12} scale={1.5} />
+      <Hosts context="studio" x={4.9} z={0.6} y={0.3} />
 
-      <GoldDust count={tier === 'high' ? 520 : 200} />
+      <GoldDust count={tier !== 'low' ? 520 : 200} />
       <Confetti active={celebrate} origin={[0, 9, 1]} spread={big ? 16 : 11} />
       <Shockwave trigger={bonusHit} color={result ? SEGMENTS[result.type].glow : '#fff'} radius={16} position={[0, 0.45, 0]} />
       <Shockwave trigger={bonusHit} color="#ffffff" radius={7} position={[WHEEL_POS[0], WHEEL_POS[1], WHEEL_POS[2] + 0.5]} vertical />

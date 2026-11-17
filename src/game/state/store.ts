@@ -1,16 +1,19 @@
 import { create } from 'zustand'
 import { rng } from '../engine/session'
 import {
-  cmAfterApply, cmBeginSurge, cmLand, cmPick, cmStop, createCm, createDon, createGd, createTs,
-  donLand, donToss, gdDrop, gdLand, tsPick,
-  type BonusState, type CoinSide,
+  CM_PICK_SECONDS, CM_SEG_ANGLE, TS_COUNT, TS_PICK_SECONDS,
+  cmBeginSpin, cmLand, cmPick, createCm, createDon, createGd, createTs,
+  donFlip, donLand, gdDrop, gdLand, gdRearm, tsPick,
+  type BonusState,
 } from '../logic/bonus'
 import { SEGMENTS, SEGMENT_ORDER, WHEEL, isBonus, type BonusType, type SegmentType } from '../logic/segments'
-import { planSpin, type SpinPlan } from '../physics/wheelSim'
+import { planFreeSpin, planSpin, type SpinPlan } from '../physics/wheelSim'
 import { canTransition, type Phase } from './machine'
 
 export type Bets = Record<SegmentType, number>
-export type Quality = 'auto' | 'high' | 'low'
+export type Quality = 'auto' | 'ultra' | 'high' | 'performance'
+export type Tier = 'ultra' | 'high' | 'low'
+const tierOf = (q: Exclude<Quality, 'auto'>): Tier => (q === 'performance' ? 'low' : q)
 export type SceneId = 'studio' | BonusType
 
 const emptyBets = (): Bets => ({ '1': 0, '2': 0, '5': 0, '10': 0, DON: 0, TS: 0, GD: 0, CM: 0 })
@@ -49,7 +52,10 @@ export interface GameStore {
   ready: boolean
   forced: SegmentType | null
   settings: { music: number; sfx: number; ambient: number; quality: Quality }
-  tier: 'high' | 'low'
+  tier: Tier
+  /** Physics plan of the grand wheel in the CHAOS bonus. */
+  bonusSpin: SpinPlan | null
+  bonusSpinStartedAt: number
 
   go: (to: Phase) => boolean
   enter: () => void
@@ -72,20 +78,17 @@ export interface GameStore {
   setForced: (t: SegmentType | null) => void
   setVolume: (bus: 'music' | 'sfx' | 'ambient', v: number) => void
   setQuality: (q: Quality) => void
-  setTier: (t: 'high' | 'low') => void
+  setTier: (t: Tier) => void
 
-  donToss: (side: CoinSide) => void
+  donFlip: () => void
   donLand: () => void
-  donBank: () => void
   tsPick: (i: number) => void
   gdAim: (aim: number) => void
   gdDrop: () => void
   gdLand: (slot: number) => void
   cmPick: (i: number) => void
-  cmBeginSurge: () => void
-  cmStop: () => void
+  cmSpin: () => void
   cmLand: () => void
-  cmBank: () => void
 }
 
 const later = (ms: number, fn: () => void) => window.setTimeout(fn, ms)
@@ -124,6 +127,8 @@ export const useGame = create<GameStore>()((set, get) => {
     forced: null,
     settings: { music: 0.55, sfx: 0.8, ambient: 0.5, quality: 'auto' },
     tier: 'high',
+    bonusSpin: null,
+    bonusSpinStartedAt: 0,
 
     go: (to) => {
       const from = get().phase
@@ -240,9 +245,25 @@ export const useGame = create<GameStore>()((set, get) => {
       if (s.phase !== 'BONUS_INTRO' || !s.result || !isBonus(s.result.type)) return
       const type = s.result.type
       const bonus: BonusState =
-        type === 'DON' ? createDon() : type === 'TS' ? createTs(rng) : type === 'GD' ? createGd(rng) : createCm(rng)
-      set({ bonus, scene: type })
+        type === 'DON' ? createDon(rng) : type === 'TS' ? createTs(rng) : type === 'GD' ? createGd(rng) : createCm(rng, performance.now() + 2500)
+      set({ bonus, scene: type, bonusSpin: null })
       get().go('BONUS_ACTIVE')
+      if (bonus.kind === 'TS') {
+        // show the wall, then cover and shuffle it, then a timed pick (auto-pick if the clock runs out)
+        const stage = (status: 'shuffle' | 'pick') => {
+          const b = get().bonus
+          if (b?.kind === 'TS') set({ bonus: { ...b, status, pickEndsAt: performance.now() + TS_PICK_SECONDS * 1000 } })
+        }
+        bonusLater(4200, () => stage('shuffle'))
+        bonusLater(6400, () => stage('pick'))
+        bonusLater(6400 + TS_PICK_SECONDS * 1000, () => get().tsPick(rng.int(TS_COUNT)))
+      }
+      if (bonus.kind === 'CM') {
+        bonusLater(2500 + CM_PICK_SECONDS * 1000, () => {
+          const b = get().bonus
+          if (b?.kind === 'CM' && b.stage === 'pick' && b.pick === null) get().cmPick(rng.int(3))
+        })
+      }
     },
 
     finishBonus: (multiplier) => {
@@ -279,43 +300,37 @@ export const useGame = create<GameStore>()((set, get) => {
     setForced: (forced) => set({ forced }),
     setVolume: (bus, v) => set((s) => ({ settings: { ...s.settings, [bus]: v } })),
     setQuality: (quality) =>
-      set((s) => ({ settings: { ...s.settings, quality }, tier: quality === 'auto' ? s.tier : quality })),
+      set((s) => ({ settings: { ...s.settings, quality }, tier: quality === 'auto' ? 'high' : tierOf(quality) })),
     setTier: (tier) => {
       if (get().settings.quality === 'auto') set({ tier })
     },
 
-    /* ── Double or Nothing ── */
-    donToss: (side) => {
+    /* ── DOUBLE ── */
+    donFlip: () => {
       const s = get()
       if (s.phase !== 'BONUS_ACTIVE' || s.bonus?.kind !== 'DON') return
-      set({ bonus: donToss(s.bonus, side, rng) })
+      set({ bonus: donFlip(s.bonus, rng) })
     },
     donLand: () => {
       const s = get()
       if (s.phase !== 'BONUS_ACTIVE' || s.bonus?.kind !== 'DON') return
       const next = donLand(s.bonus)
+      if (next === s.bonus) return
       set({ bonus: next })
-      if (next.status === 'lost' || next.status === 'maxed') bonusLater(2200, () => get().finishBonus(next.multiplier))
-    },
-    donBank: () => {
-      const s = get()
-      if (s.phase !== 'BONUS_ACTIVE' || s.bonus?.kind !== 'DON' || s.bonus.status !== 'won') return
-      const b = s.bonus
-      set({ bonus: { ...b, status: 'banked' } })
-      bonusLater(900, () => get().finishBonus(b.multiplier))
+      bonusLater(2600, () => get().finishBonus(next.multiplier))
     },
 
-    /* ── Treasure Storm ── */
+    /* ── TREASURE ── */
     tsPick: (i) => {
       const s = get()
       if (s.phase !== 'BONUS_ACTIVE' || s.bonus?.kind !== 'TS') return
       const next = tsPick(s.bonus, i)
       if (next === s.bonus) return
       set({ bonus: next })
-      if (next.status === 'done') bonusLater(3600, () => get().finishBonus(next.total))
+      bonusLater(4200, () => get().finishBonus(next.multiplier))
     },
 
-    /* ── Gravity Drop ── */
+    /* ── GRAVITY ── */
     gdAim: (aim) => {
       const s = get()
       if (s.phase !== 'BONUS_ACTIVE' || s.bonus?.kind !== 'GD' || s.bonus.status !== 'aim') return
@@ -332,48 +347,38 @@ export const useGame = create<GameStore>()((set, get) => {
       const next = gdLand(s.bonus, slot)
       if (next === s.bonus) return
       set({ bonus: next })
-      bonusLater(2400, () => get().finishBonus(next.multiplier))
+      if (next.status === 'landed') bonusLater(2400, () => get().finishBonus(next.multiplier))
+      else
+        bonusLater(2600, () => {
+          const b = get().bonus
+          if (b?.kind === 'GD') set({ bonus: gdRearm(b) })
+        })
     },
 
-    /* ── Chaos Mode ── */
+    /* ── CHAOS ── */
     cmPick: (i) => {
       const s = get()
       if (s.phase !== 'BONUS_ACTIVE' || s.bonus?.kind !== 'CM') return
       const next = cmPick(s.bonus, i)
       if (next === s.bonus) return
       set({ bonus: next })
-      bonusLater(3000, () => get().cmBeginSurge())
+      bonusLater(1600, () => get().cmSpin())
     },
-    cmBeginSurge: () => {
+    cmSpin: () => {
       const s = get()
       if (s.phase !== 'BONUS_ACTIVE' || s.bonus?.kind !== 'CM') return
-      set({ bonus: cmBeginSurge(s.bonus, performance.now(), rng) })
-    },
-    cmStop: () => {
-      const s = get()
-      if (s.phase !== 'BONUS_ACTIVE' || s.bonus?.kind !== 'CM') return
-      set({ bonus: cmStop(s.bonus, performance.now(), rng) })
+      const next = cmBeginSpin(s.bonus)
+      if (next === s.bonus) return
+      set({ bonus: next, bonusSpin: planFreeSpin(rng, s.bonus.angle, CM_SEG_ANGLE), bonusSpinStartedAt: performance.now() })
     },
     cmLand: () => {
       const s = get()
-      if (s.phase !== 'BONUS_ACTIVE' || s.bonus?.kind !== 'CM') return
-      const next = cmLand(s.bonus)
+      if (s.phase !== 'BONUS_ACTIVE' || s.bonus?.kind !== 'CM' || !s.bonusSpin) return
+      const next = cmLand(s.bonus, s.bonusSpin.finalAngle)
       if (next === s.bonus) return
       set({ bonus: next })
-      bonusLater(2200, () => {
-        const cur = get().bonus
-        if (cur?.kind !== 'CM') return
-        const after = cmAfterApply(cur)
-        set({ bonus: after })
-        if (after.stage === 'done') bonusLater(1200, () => get().finishBonus(after.multiplier))
-      })
-    },
-    cmBank: () => {
-      const s = get()
-      if (s.phase !== 'BONUS_ACTIVE' || s.bonus?.kind !== 'CM' || s.bonus.stage !== 'decide') return
-      const b = s.bonus
-      set({ bonus: { ...b, stage: 'done' } })
-      bonusLater(900, () => get().finishBonus(b.multiplier))
+      if (next.stage === 'result') bonusLater(2800, () => get().finishBonus(next.multiplier))
+      else bonusLater(3600, () => get().cmSpin())
     },
   }
 })

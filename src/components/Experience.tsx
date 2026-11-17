@@ -60,7 +60,7 @@ export default function Experience({ onReady }: { onReady: () => void }) {
   return (
     <Canvas
       shadows
-      dpr={tier === 'high' ? [1, 1.75] : [0.75, 1]}
+      dpr={tier === 'ultra' ? [1, 2] : tier === 'high' ? [1, 1.5] : [0.75, 1]}
       gl={{ antialias: true, powerPreference: 'high-performance', stencil: false }}
       camera={{ fov: 38, position: [-3.6, 7.6, 13.4], near: 0.1, far: 140 }}
     >
@@ -72,9 +72,9 @@ export default function Experience({ onReady }: { onReady: () => void }) {
         <Scene />
         <FirstFrame onReady={onReady} />
       </Suspense>
-      {tier === 'high' && (
-        <EffectComposer multisampling={4}>
-          <Bloom mipmapBlur luminanceThreshold={0.9} luminanceSmoothing={0.25} intensity={0.7} radius={0.7} />
+      {tier !== 'low' && (
+        <EffectComposer multisampling={tier === 'ultra' ? 4 : 2}>
+          <Bloom mipmapBlur luminanceThreshold={0.9} luminanceSmoothing={0.25} intensity={0.55} radius={0.65} />
           <Vignette offset={0.25} darkness={0.72} />
           <ToneMapping mode={ToneMappingMode.ACES_FILMIC} />
         </EffectComposer>

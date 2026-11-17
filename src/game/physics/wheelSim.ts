@@ -35,14 +35,14 @@ export interface SpinPlan {
   decelAt: number
 }
 
-function pegForce(angle: number): number {
-  const nearest = Math.round(angle / SEG_ANGLE) * SEG_ANGLE
+function pegForce(angle: number, seg: number): number {
+  const nearest = Math.round(angle / seg) * seg
   const d = angle - nearest
   if (Math.abs(d) >= PEG_HALF_WIDTH) return 0
   return d >= 0 ? PEG_PUSH : -PEG_PUSH
 }
 
-export function simulateSpin(startAngle: number, omega0: number): SpinPlan {
+export function simulateSpin(startAngle: number, omega0: number, seg: number = SEG_ANGLE): SpinPlan {
   const out: number[] = []
   let angle = startAngle
   let omega = 0
@@ -56,7 +56,7 @@ export function simulateSpin(startAngle: number, omega0: number): SpinPlan {
       const u = (t + STEP) / RAMP_TIME
       omega = omega0 * u * u * (3 - 2 * u)
     } else {
-      const peg = pegForce(angle)
+      const peg = pegForce(angle, seg)
       const drag = (omega === 0 ? 0 : Math.sign(omega) * DRY) + VISCOUS * omega
       const next = omega + (peg - drag) * STEP
       // Dry friction cannot reverse the direction of travel by itself: stick instead.
@@ -101,6 +101,11 @@ export function planSpin(rng: Rng, startAngle: number, want?: SegmentType | null
     }
   }
   return plan
+}
+
+/** A spin for any wheel with pegs every "seg" radians; the caller reads the result from finalAngle. */
+export function planFreeSpin(rng: Rng, startAngle: number, seg: number): SpinPlan {
+  return simulateSpin(startAngle, rng.range(8.5, 12), seg)
 }
 
 export function sampleSpin(plan: SpinPlan, time: number): { angle: number; omega: number } {

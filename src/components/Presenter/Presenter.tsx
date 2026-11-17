@@ -1,69 +1,42 @@
+import { useGLTF, useTexture } from '@react-three/drei'
 import { useFrame } from '@react-three/fiber'
-import { useMemo, useRef } from 'react'
+import { Component, Suspense, useEffect, useMemo, useRef, type ReactNode } from 'react'
 import * as THREE from 'three'
 import { JACKPOT_THRESHOLD } from '../../game/logic/bonus'
 import { isBonus } from '../../game/logic/segments'
 import { useGame, type GameStore } from '../../game/state/store'
-import { M } from '../../materials'
+import { M, glow } from '../../materials'
 import { damp } from '../../utils/math'
 
+export type HostId = 'delux' | 'salsetta'
 export type PresenterMode =
   | 'idle' | 'welcome' | 'explain' | 'introduce' | 'anticipate' | 'watch' | 'celebrate' | 'present' | 'bonus' | 'jackpot'
 
-/** Joint targets. Arm "a" is on the wheel side (−x), arm "b" holds the microphone. */
-interface Pose {
-  rootY: number; rootRy: number; spineRx: number; spineRz: number; headRx: number; headRy: number
-  aSx: number; aSz: number; aE: number; bSx: number; bSz: number; bE: number; talk: number
-}
+const BASE = import.meta.env.BASE_URL
+const modelUrl = (id: HostId): string => `${BASE}models/${id}.glb`
+const textureUrls = (id: HostId): string[] => ['diffuse', 'normal', 'roughness'].map((k) => `${BASE}models/${id}_${k}.jpg`)
 
-const REST: Pose = {
-  rootY: 0, rootRy: 0, spineRx: 0, spineRz: 0, headRx: 0, headRy: 0,
-  aSx: 0, aSz: -0.14, aE: -0.3, bSx: -0.45, bSz: 0.18, bE: -1.95, talk: 0,
-}
-
+/**
+ * The supplied scans are static busts (no skeleton, no clips), so the hosts are
+ * animated procedurally as whole bodies: turn, lean, nod, hop. `toWheel` is the
+ * yaw that makes this host look at the centre of the stage.
+ */
+interface Pose { ry: number; rx: number; rz: number; y: number; squash: number }
 const s = Math.sin
 
-/** Each mode is a small procedural animation clip: joint targets as a function of time. */
-const CLIPS: Record<PresenterMode, (t: number) => Partial<Pose>> = {
-  idle: (t) => ({ spineRz: s(t * 0.7) * 0.03, headRy: s(t * 0.5) * 0.25, headRx: s(t * 0.9) * 0.04, aSz: -0.14 + s(t * 0.8) * 0.03 }),
-  welcome: (t) => ({
-    aSz: -2.45 + s(t * 7) * 0.28, aSx: -0.15, aE: -0.5, spineRz: -0.06 + s(t * 3.5) * 0.03, headRy: s(t * 1.2) * 0.2,
-    rootY: Math.abs(s(t * 3.5)) * 0.03, talk: 1,
-  }),
-  explain: (t) => ({
-    aSx: -0.95 + s(t * 2.3) * 0.25, aSz: -0.45 + s(t * 1.4) * 0.3, aE: -1.05 + s(t * 3.1) * 0.35,
-    bSx: -0.6 + s(t * 1.9) * 0.08, headRy: s(t * 0.9) * 0.3, headRx: s(t * 2.1) * 0.06, spineRz: s(t * 1.1) * 0.05,
-    rootRy: s(t * 0.6) * 0.15, talk: 1,
-  }),
-  introduce: (t) => ({
-    aSz: -1.8 + s(t * 2.5) * 0.08, aSx: -0.25, aE: -0.15, rootRy: -0.35, headRy: -0.35 + s(t * 1.5) * 0.3, spineRz: 0.07, talk: 1,
-  }),
-  anticipate: (t) => ({
-    spineRx: 0.14, aSx: -1.0, aSz: -0.05, aE: -1.9 + s(t * 11) * 0.08, bSx: -0.8, rootY: -0.03 + Math.abs(s(t * 5)) * 0.03,
-    headRy: -0.3, headRx: -0.05, rootRy: -0.25,
-  }),
-  watch: (t) => ({
-    rootRy: -0.75, headRy: -0.25, headRx: -0.22, spineRx: 0.06, aSx: -1.25, aSz: -0.2, aE: -1.9 + s(t * 9) * 0.25,
-    rootY: Math.abs(s(t * 4.5)) * 0.025,
-  }),
-  celebrate: (t) => ({
-    aSz: -2.75 + s(t * 9) * 0.18, bSz: 2.5 + s(t * 9 + 1) * 0.18, bSx: 0, bE: -0.4, aE: -0.35, rootY: Math.abs(s(t * 6.5)) * 0.14,
-    spineRz: s(t * 6.5) * 0.08, headRx: -0.18, talk: 1,
-  }),
-  present: (t) => ({
-    aSz: -1.45, aSx: -0.3, aE: -0.3 + s(t * 2) * 0.1, rootRy: -0.3, headRy: s(t * 1.3) * 0.25, spineRz: 0.05, talk: 1,
-  }),
-  bonus: (t) => ({
-    aSz: -2.0 + s(t * 4) * 0.25, bSz: 1.9 + s(t * 4 + 2) * 0.25, bSx: -0.1, bE: -0.5, aE: -0.25, rootY: Math.abs(s(t * 5)) * 0.09,
-    rootRy: s(t * 2) * 0.35, headRx: -0.12, spineRx: -0.06, talk: 1,
-  }),
-  jackpot: (t) => ({
-    aSz: -2.85 + s(t * 12) * 0.2, bSz: 2.7 + s(t * 12 + 1) * 0.2, bSx: 0, bE: -0.3, aE: -0.2, rootY: Math.abs(s(t * 7.5)) * 0.24,
-    rootRy: s(t * 3) * 0.9, spineRz: s(t * 7.5) * 0.12, headRx: -0.3, talk: 1,
-  }),
+const CLIPS: Record<PresenterMode, (t: number, toWheel: number) => Pose> = {
+  idle: (t) => ({ ry: s(t * 0.5) * 0.28, rx: s(t * 0.8) * 0.03, rz: s(t * 0.6) * 0.02, y: 0, squash: 0 }),
+  welcome: (t) => ({ ry: s(t * 0.9) * 0.2, rx: 0.07 + s(t * 4.5) * 0.07, rz: s(t * 2.2) * 0.05, y: 0, squash: 0 }),
+  explain: (t) => ({ ry: s(t * 0.8) * 0.4, rx: s(t * 2.3) * 0.05, rz: s(t * 1.3) * 0.06, y: 0, squash: 0 }),
+  introduce: (t, w) => ({ ry: w * 0.75 + s(t * 1.4) * 0.12, rx: -0.04, rz: w * 0.07, y: 0, squash: 0 }),
+  anticipate: (t, w) => ({ ry: w * 0.45, rx: 0.13, rz: s(t * 13) * 0.012, y: 0, squash: s(t * 9) * 0.012 }),
+  watch: (t, w) => ({ ry: w, rx: -0.14, rz: s(t * 2) * 0.03, y: Math.abs(s(t * 4.5)) * 0.03, squash: 0 }),
+  celebrate: (t) => ({ ry: s(t * 3.2) * 0.3, rx: -0.1, rz: s(t * 6.5) * 0.12, y: Math.abs(s(t * 6.5)) * 0.2, squash: s(t * 13) * 0.03 }),
+  present: (t, w) => ({ ry: w * 0.6 + s(t * 1.2) * 0.15, rx: 0, rz: w * 0.05, y: 0, squash: 0 }),
+  bonus: (t) => ({ ry: s(t * 2.4) * 0.7, rx: -0.08, rz: s(t * 5) * 0.09, y: Math.abs(s(t * 5.5)) * 0.14, squash: s(t * 11) * 0.025 }),
+  jackpot: (t) => ({ ry: t * 5.2, rx: -0.12, rz: s(t * 8) * 0.14, y: Math.abs(s(t * 7.5)) * 0.34, squash: s(t * 15) * 0.04 }),
 }
 
-/** Maps game state to what the host should be doing in the studio. */
 function studioMode(g: GameStore, now: number): PresenterMode {
   const age = (now - g.phaseStartedAt) / 1000
   switch (g.phase) {
@@ -87,210 +60,118 @@ function bonusMode(g: GameStore): PresenterMode {
   if (g.phase === 'BONUS_RESULT') return (g.bonusMultiplier ?? 0) >= JACKPOT_THRESHOLD ? 'jackpot' : 'celebrate'
   const b = g.bonus
   if (!b) return 'idle'
-  if (b.kind === 'DON') return b.status === 'flipping' ? 'watch' : b.status === 'won' || b.status === 'maxed' ? 'celebrate' : 'explain'
-  if (b.kind === 'TS') return b.picks.length > 0 && b.status === 'done' ? 'celebrate' : 'explain'
+  if (b.kind === 'DON') return b.status === 'flipping' ? 'watch' : b.status === 'done' ? 'celebrate' : 'explain'
+  if (b.kind === 'TS') return b.status === 'done' ? 'celebrate' : b.status === 'pick' ? 'anticipate' : 'explain'
   if (b.kind === 'GD') return b.status === 'dropping' ? 'watch' : b.status === 'landed' ? 'celebrate' : 'introduce'
-  return b.stage === 'stopping' || b.stage === 'surge' ? 'watch' : b.stage === 'applied' ? 'celebrate' : 'explain'
+  return b.stage === 'spinning' ? 'watch' : b.stage === 'result' || b.stage === 'boost' ? 'celebrate' : 'explain'
 }
 
-const jacket = new THREE.MeshPhysicalMaterial({ color: '#34106b', roughness: 0.55, metalness: 0.15, sheen: 1, sheenColor: new THREE.Color('#b98cff'), sheenRoughness: 0.35 })
-const trousers = new THREE.MeshStandardMaterial({ color: '#0c0b14', roughness: 0.6 })
-const skin = new THREE.MeshStandardMaterial({ color: '#c88a62', roughness: 0.55 })
-const hair = new THREE.MeshStandardMaterial({ color: '#eceaf5', roughness: 0.35, metalness: 0.3 })
-const white = new THREE.MeshStandardMaterial({ color: '#f6f4ef', roughness: 0.5 })
-const dark = new THREE.MeshStandardMaterial({ color: '#16090a', roughness: 0.4 })
-const lip = new THREE.MeshStandardMaterial({ color: '#7a2a2a', roughness: 0.4 })
-
-function Arm({ side, shoulder, elbow, mic }: { side: 1 | -1; shoulder: React.RefObject<THREE.Group | null>; elbow: React.RefObject<THREE.Group | null>; mic?: boolean }) {
-  return (
-    <group ref={shoulder} position={[side * 0.235, 0.5, 0]}>
-      <mesh material={jacket} castShadow>
-        <sphereGeometry args={[0.078, 16, 14]} />
-      </mesh>
-      <mesh position-y={-0.15} material={jacket} castShadow>
-        <capsuleGeometry args={[0.056, 0.2, 6, 14]} />
-      </mesh>
-      <group ref={elbow} position-y={-0.3}>
-        <mesh position-y={-0.12} material={jacket} castShadow>
-          <capsuleGeometry args={[0.05, 0.18, 6, 14]} />
-        </mesh>
-        <mesh position-y={-0.245} material={white}>
-          <cylinderGeometry args={[0.052, 0.052, 0.035, 14]} />
-        </mesh>
-        <mesh position-y={-0.262} material={M.gold}>
-          <torusGeometry args={[0.052, 0.008, 6, 16]} />
-        </mesh>
-        <mesh position-y={-0.31} scale={[1, 1.2, 0.8]} material={skin} castShadow>
-          <sphereGeometry args={[0.05, 14, 12]} />
-        </mesh>
-        {mic && (
-          <group position={[0, -0.33, 0.03]} rotation-x={0.5}>
-            <mesh material={M.blackMetal}>
-              <cylinderGeometry args={[0.017, 0.014, 0.17, 10]} />
-            </mesh>
-            <mesh position-y={-0.115} material={M.chrome}>
-              <sphereGeometry args={[0.036, 14, 12]} />
-            </mesh>
-            <mesh position-y={-0.085} material={M.gold}>
-              <cylinderGeometry args={[0.022, 0.022, 0.012, 12]} />
-            </mesh>
-          </group>
-        )}
-      </group>
-    </group>
-  )
+function Bust({ id }: { id: HostId }) {
+  const gltf = useGLTF(modelUrl(id))
+  const [map, normalMap, roughnessMap] = useTexture(textureUrls(id))
+  const material = useMemo(() => {
+    for (const t of [map, normalMap, roughnessMap]) {
+      t.flipY = false
+      t.needsUpdate = true
+    }
+    map.colorSpace = THREE.SRGBColorSpace
+    map.anisotropy = 8
+    return new THREE.MeshStandardMaterial({ map, normalMap, roughnessMap, roughness: 1, metalness: 0 })
+  }, [map, normalMap, roughnessMap])
+  const geometry = useMemo(() => {
+    let g: THREE.BufferGeometry | null = null
+    gltf.scene.traverse((o) => {
+      if ((o as THREE.Mesh).isMesh) g = (o as THREE.Mesh).geometry
+    })
+    return g as THREE.BufferGeometry | null
+  }, [gltf])
+  useEffect(() => () => material.dispose(), [material])
+  if (!geometry) return null
+  return <mesh geometry={geometry} material={material} castShadow dispose={null} />
 }
 
-function Leg({ side }: { side: 1 | -1 }) {
-  return (
-    <group position={[side * 0.1, 0.95, 0]}>
-      <mesh position-y={-0.23} material={trousers} castShadow>
-        <capsuleGeometry args={[0.078, 0.34, 6, 14]} />
-      </mesh>
-      <mesh position-y={-0.66} material={trousers} castShadow>
-        <capsuleGeometry args={[0.06, 0.38, 6, 14]} />
-      </mesh>
-      <mesh position={[0, -0.915, 0.05]} scale={[0.07, 0.042, 0.15]} material={M.gloss} castShadow>
-        <sphereGeometry args={[1, 16, 12]} />
-      </mesh>
-      <mesh position={[0, -0.33, 0.079]} material={M.gold}>
-        <boxGeometry args={[0.012, 0.9, 0.004]} />
-      </mesh>
-    </group>
-  )
+/** If a model fails to load the show goes on with an empty plinth instead of crashing. */
+class ModelBoundary extends Component<{ children: ReactNode }, { failed: boolean }> {
+  state = { failed: false }
+  static getDerivedStateFromError() {
+    return { failed: true }
+  }
+  componentDidCatch(error: unknown) {
+    console.warn('[chaos] presenter model failed to load', error)
+  }
+  render() {
+    return this.state.failed ? null : this.props.children
+  }
 }
 
-export function Presenter({ context = 'studio', ...props }: { context?: 'studio' | 'bonus' } & React.ComponentProps<'group'>) {
-  const root = useRef<THREE.Group>(null!)
-  const spine = useRef<THREE.Group>(null!)
-  const head = useRef<THREE.Group>(null!)
-  const aS = useRef<THREE.Group>(null)
-  const aE = useRef<THREE.Group>(null)
-  const bS = useRef<THREE.Group>(null)
-  const bE = useRef<THREE.Group>(null)
-  const mouth = useRef<THREE.Mesh>(null!)
-  const eyes = useRef<THREE.Group>(null!)
-  const pose = useRef<Pose>({ ...REST })
+const PLINTH = 1.35
 
-  const torso = useMemo(() => {
-    const pts = [[0.215, -0.1], [0.19, 0.0], [0.158, 0.17], [0.172, 0.3], [0.2, 0.43], [0.2, 0.5], [0.15, 0.56], [0.06, 0.6], [0.001, 0.6]].map(
-      ([x, y]) => new THREE.Vector2(x, y),
-    )
-    return new THREE.LatheGeometry(pts, 28)
-  }, [])
+export function Presenter({
+  who, context = 'studio', side = 1, height = 2.1, ...props
+}: { who: HostId; context?: 'studio' | 'bonus'; side?: 1 | -1; height?: number } & React.ComponentProps<'group'>) {
+  const body = useRef<THREE.Group>(null!)
+  const pose = useRef<Pose>({ ry: 0, rx: 0, rz: 0, y: 0, squash: 0 })
+  const strip = useMemo(() => glow('#f5c867', 2), [])
+  useEffect(() => () => strip.dispose(), [strip])
 
   useFrame(({ clock }, rawDt) => {
     const dt = Math.min(rawDt, 0.05)
-    const t = clock.elapsedTime
+    const t = clock.elapsedTime + (side === 1 ? 0 : 1.7)
     const g = useGame.getState()
     const mode = context === 'studio' ? studioMode(g, performance.now()) : bonusMode(g)
-    const target: Pose = { ...REST, ...CLIPS[mode](t) }
+    const target = CLIPS[mode](t, -side * 0.95)
     const p = pose.current
-    for (const k of Object.keys(p) as (keyof Pose)[]) p[k] = damp(p[k], target[k], 7, dt)
-
-    const breathe = s(t * 1.6) * 0.008
-    root.current.position.y = p.rootY
-    root.current.rotation.y = p.rootRy
-    spine.current.rotation.set(p.spineRx, 0, p.spineRz)
-    spine.current.scale.set(1, 1 + breathe, 1)
-    head.current.rotation.set(p.headRx, p.headRy, s(t * 0.8) * 0.03)
-    aS.current?.rotation.set(p.aSx, 0, p.aSz)
-    aE.current?.rotation.set(p.aE, 0, 0)
-    bS.current?.rotation.set(p.bSx, 0, p.bSz)
-    bE.current?.rotation.set(p.bE, 0, 0)
-    const open = p.talk * (0.35 + 0.65 * Math.abs(s(t * 11) * s(t * 3.7)))
-    mouth.current.scale.set(1 + p.talk * 0.25, 0.25 + open * 1.3, 1)
-    const blink = (t % 3.7) < 0.12 ? 0.1 : 1
-    eyes.current.scale.y = blink
+    // A continuous spin (jackpot) is followed directly; everything else is eased.
+    p.ry = mode === 'jackpot' ? target.ry : damp(p.ry % (Math.PI * 2), target.ry, 5, dt)
+    p.rx = damp(p.rx, target.rx, 6, dt)
+    p.rz = damp(p.rz, target.rz, 6, dt)
+    p.y = damp(p.y, target.y, 14, dt)
+    p.squash = damp(p.squash, target.squash, 10, dt)
+    const breathe = s(t * 1.5) * 0.006
+    body.current.rotation.set(p.rx, p.ry, p.rz)
+    body.current.position.y = PLINTH + p.y
+    body.current.scale.set(height * (1 - p.squash * 0.5), height * (1 + p.squash + breathe), height * (1 - p.squash * 0.5))
   })
 
   return (
     <group {...props}>
-      <group ref={root}>
-        <Leg side={1} />
-        <Leg side={-1} />
-        <group ref={spine} position-y={0.95}>
-          <mesh geometry={torso} scale={[1, 1, 0.66]} material={jacket} castShadow />
-          {/* coat tails */}
-          {[1, -1].map((sd) => (
-            <mesh key={sd} position={[sd * 0.085, -0.25, -0.115]} rotation={[0.16, 0, sd * 0.06]} material={jacket} castShadow>
-              <boxGeometry args={[0.14, 0.36, 0.02]} />
-            </mesh>
-          ))}
-          {/* shirt, lapels, bow tie, buttons */}
-          <mesh position={[0, 0.4, 0.068]} scale={[0.07, 0.18, 0.07]} material={white}>
-            <sphereGeometry args={[1, 16, 14]} />
-          </mesh>
-          {[1, -1].map((sd) => (
-            <mesh key={sd} position={[sd * 0.062, 0.4, 0.126]} rotation={[0.1, 0, sd * 0.3]} material={M.gold}>
-              <boxGeometry args={[0.022, 0.3, 0.012]} />
-            </mesh>
-          ))}
-          {[1, -1].map((sd) => (
-            <mesh key={sd} position={[sd * 0.036, 0.565, 0.1]} rotation-z={sd * Math.PI / 2} material={M.gold}>
-              <coneGeometry args={[0.028, 0.065, 4]} />
-            </mesh>
-          ))}
-          {[0.2, 0.1].map((y) => (
-            <mesh key={y} position={[0, y, 0.108]} material={M.gold}>
-              <sphereGeometry args={[0.014, 10, 8]} />
-            </mesh>
-          ))}
-          <mesh position={[0.105, 0.42, 0.116]} rotation-z={-0.2} material={M.gold}>
-            <octahedronGeometry args={[0.022]} />
-          </mesh>
-
-          <Arm side={-1} shoulder={aS} elbow={aE} />
-          <Arm side={1} shoulder={bS} elbow={bE} mic />
-
-          <mesh position-y={0.63} material={skin}>
-            <cylinderGeometry args={[0.042, 0.048, 0.1, 12]} />
-          </mesh>
-          <group ref={head} position-y={0.68}>
-            <mesh position-y={0.1} scale={[1, 1.16, 1.03]} material={skin} castShadow>
-              <sphereGeometry args={[0.105, 24, 20]} />
-            </mesh>
-            {/* swept-back platinum pompadour */}
-            <mesh position={[0, 0.16, -0.022]} scale={[1.05, 0.95, 1.08]} material={hair} castShadow>
-              <sphereGeometry args={[0.108, 20, 16, 0, Math.PI * 2, 0, Math.PI * 0.62]} />
-            </mesh>
-            <mesh position={[0, 0.235, 0.045]} rotation-x={-0.5} scale={[0.95, 0.62, 1.25]} material={hair} castShadow>
-              <sphereGeometry args={[0.085, 16, 14]} />
-            </mesh>
-            <mesh position={[0, 0.262, -0.03]} rotation-x={-0.2} scale={[0.7, 0.5, 1.2]} material={hair}>
-              <sphereGeometry args={[0.08, 14, 12]} />
-            </mesh>
-            {[1, -1].map((sd) => (
-              <mesh key={sd} position={[sd * 0.106, 0.1, -0.005]} scale={[0.5, 1, 0.8]} material={skin}>
-                <sphereGeometry args={[0.024, 10, 8]} />
-              </mesh>
-            ))}
-            <group ref={eyes} position-y={0.118}>
-              {[1, -1].map((sd) => (
-                <group key={sd} position={[sd * 0.038, 0, 0.089]}>
-                  <mesh material={white}>
-                    <sphereGeometry args={[0.018, 12, 10]} />
-                  </mesh>
-                  <mesh position-z={0.012} material={dark}>
-                    <sphereGeometry args={[0.0095, 10, 8]} />
-                  </mesh>
-                </group>
-              ))}
-            </group>
-            {[1, -1].map((sd) => (
-              <mesh key={sd} position={[sd * 0.04, 0.152, 0.094]} rotation-z={sd * -0.18} material={hair}>
-                <boxGeometry args={[0.04, 0.008, 0.012]} />
-              </mesh>
-            ))}
-            <mesh position={[0, 0.088, 0.108]} rotation-x={Math.PI / 2 - 0.35} material={skin}>
-              <coneGeometry args={[0.014, 0.045, 8]} />
-            </mesh>
-            <mesh ref={mouth} position={[0, 0.042, 0.097]} material={lip}>
-              <sphereGeometry args={[0.022, 12, 8]} />
-            </mesh>
-          </group>
-        </group>
+      <mesh position-y={0.09} material={M.gloss} castShadow receiveShadow>
+        <cylinderGeometry args={[0.72, 0.82, 0.18, 8]} />
+      </mesh>
+      <mesh position-y={PLINTH / 2 + 0.05} material={M.blackMetal} castShadow>
+        <cylinderGeometry args={[0.4, 0.56, PLINTH - 0.25, 8]} />
+      </mesh>
+      {[0.3, PLINTH - 0.22].map((y, i) => (
+        <mesh key={y} position-y={y} rotation-x={Math.PI / 2} material={M.gold}>
+          <torusGeometry args={[i ? 0.44 : 0.56, 0.03, 8, 8]} />
+        </mesh>
+      ))}
+      <mesh position-y={PLINTH - 0.06} material={M.gold} castShadow>
+        <cylinderGeometry args={[0.62, 0.46, 0.12, 8]} />
+      </mesh>
+      <mesh position-y={PLINTH + 0.005} rotation-x={-Math.PI / 2} material={strip}>
+        <ringGeometry args={[0.5, 0.56, 8]} />
+      </mesh>
+      <group ref={body} position-y={PLINTH}>
+        <ModelBoundary>
+          <Suspense fallback={null}>
+            <Bust id={who} />
+          </Suspense>
+        </ModelBoundary>
       </group>
     </group>
   )
 }
+
+/** Both hosts, mirrored around the centre of a stage. */
+export function Hosts({ x, z, y = 0, context, height }: { x: number; z: number; y?: number; context: 'studio' | 'bonus'; height?: number }) {
+  return (
+    <>
+      <Presenter who="delux" side={-1} context={context} height={height} position={[-x, y, z]} />
+      <Presenter who="salsetta" side={1} context={context} height={height} position={[x, y, z]} />
+    </>
+  )
+}
+
+useGLTF.preload(modelUrl('delux'))
+useGLTF.preload(modelUrl('salsetta'))

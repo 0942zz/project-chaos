@@ -81,6 +81,19 @@ export class GravityBoard {
     this.y = BOARD.top
   }
 
+  /** Removes the ball so another one can be dropped (used after a DOUBLE). */
+  reset(): void {
+    if (this.ball) this.world.removeRigidBody(this.ball)
+    this.ball = null
+    this.landedSlot = null
+    this.acc = 0
+    this.stillFor = 0
+    this.prevVx = 0
+    this.prevVy = 0
+    this.x = 0
+    this.y = BOARD.top
+  }
+
   get dropped(): boolean {
     return this.ball !== null
   }

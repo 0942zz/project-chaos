@@ -23,10 +23,10 @@ export const SEGMENTS: Record<SegmentType, SegmentInfo> = {
   '2': { type: '2', label: '2', name: '2', color: '#0c7a52', glow: '#2dffb0', text: '#eafff6', bonus: false, payout: 2 },
   '5': { type: '5', label: '5', name: '5', color: '#1746c9', glow: '#5c92ff', text: '#eef3ff', bonus: false, payout: 5 },
   '10': { type: '10', label: '10', name: '10', color: '#b0122c', glow: '#ff4a68', text: '#fff0f2', bonus: false, payout: 10 },
-  DON: { type: 'DON', label: 'DOUBLE', name: 'Double or Nothing', color: '#d9a21b', glow: '#ffd75e', text: '#1a1203', bonus: true, payout: 0 },
-  TS: { type: 'TS', label: 'TREASURE', name: 'Treasure Storm', color: '#0a9fb8', glow: '#49ecff', text: '#04161a', bonus: true, payout: 0 },
-  GD: { type: 'GD', label: 'GRAVITY', name: 'Gravity Drop', color: '#b51fa6', glow: '#ff5cf0', text: '#fff0fe', bonus: true, payout: 0 },
-  CM: { type: 'CM', label: 'CHAOS', name: 'Chaos Mode', color: '#efe9dc', glow: '#ffffff', text: '#7a1dd1', bonus: true, payout: 0 },
+  DON: { type: 'DON', label: 'DOUBLE', name: 'Double', color: '#d9a21b', glow: '#ffd75e', text: '#1a1203', bonus: true, payout: 0 },
+  TS: { type: 'TS', label: 'TREASURE', name: 'Treasure', color: '#0a9fb8', glow: '#49ecff', text: '#04161a', bonus: true, payout: 0 },
+  GD: { type: 'GD', label: 'GRAVITY', name: 'Gravity', color: '#b51fa6', glow: '#ff5cf0', text: '#fff0fe', bonus: true, payout: 0 },
+  CM: { type: 'CM', label: 'CHAOS', name: 'Chaos', color: '#efe9dc', glow: '#ffffff', text: '#7a1dd1', bonus: true, payout: 0 },
 }
 
 /**
@@ -45,23 +45,41 @@ export const WHEEL_COUNTS: Record<SegmentType, number> = {
   CM: 1,
 }
 
-/** Spreads each type as evenly as possible around the rim (rarest placed first). */
+/**
+ * Lays the pockets out around the rim. Bonus pockets go down first, evenly
+ * spaced and interleaved by type, so two bonuses are never neighbours (also
+ * across the seam between the last and first pocket). Numbers then fill the
+ * gaps, each type spread as evenly as possible.
+ */
 export function buildWheel(counts: Record<SegmentType, number>): SegmentType[] {
   const total = SEGMENT_ORDER.reduce((n, t) => n + counts[t], 0)
   const slots: (SegmentType | null)[] = new Array(total).fill(null)
-  const order = [...SEGMENT_ORDER].sort((a, b) => counts[a] - counts[b])
-  order.forEach((type, oi) => {
-    const c = counts[type]
-    const offset = oi * 3.37 + 0.5
-    for (let k = 0; k < c; k++) {
-      const ideal = Math.round(offset + (k * total) / c) % total
-      for (let d = 0; d < total; d++) {
-        const a = (ideal + d) % total
-        const b = (ideal - d + total) % total
-        if (slots[a] === null) { slots[a] = type; break }
-        if (slots[b] === null) { slots[b] = type; break }
-      }
+  const place = (type: SegmentType, ideal: number) => {
+    for (let d = 0; d < total; d++) {
+      const a = (((ideal + d) % total) + total) % total
+      const b = (((ideal - d) % total) + total) % total
+      if (slots[a] === null) { slots[a] = type; return }
+      if (slots[b] === null) { slots[b] = type; return }
     }
+  }
+
+  // Interleave bonus types (most frequent first) so identical bonuses are far apart too.
+  const pool = SEGMENT_ORDER.filter((t) => SEGMENTS[t].bonus).map((t) => ({ t, left: counts[t], credit: 0 }))
+  const bonusTotal = pool.reduce((n, p) => n + p.left, 0)
+  const sequence: SegmentType[] = []
+  for (let i = 0; i < bonusTotal; i++) {
+    pool.forEach((p) => (p.credit += p.left > 0 ? counts[p.t] / bonusTotal : 0))
+    const next = pool.filter((p) => p.left > 0).sort((x, y) => y.credit - x.credit)[0]
+    next.credit -= 1
+    next.left -= 1
+    sequence.push(next.t)
+  }
+  if (bonusTotal * 2 > total) throw new Error('Too many bonus pockets to keep them apart')
+  sequence.forEach((t, i) => (slots[Math.floor((i * total) / bonusTotal)] = t))
+
+  const numbers = SEGMENT_ORDER.filter((t) => !SEGMENTS[t].bonus).sort((x, y) => counts[x] - counts[y])
+  numbers.forEach((type, oi) => {
+    for (let k = 0; k < counts[type]; k++) place(type, Math.round(oi * 2.6 + 1 + (k * total) / counts[type]))
   })
   return slots as SegmentType[]
 }

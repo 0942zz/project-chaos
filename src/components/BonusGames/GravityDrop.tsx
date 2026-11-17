@@ -2,7 +2,7 @@ import { useFrame, type ThreeEvent } from '@react-three/fiber'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import * as THREE from 'three'
 import { audio } from '../../audio/engine'
-import { GD_SLOTS } from '../../game/logic/bonus'
+import { GD_DOUBLE, GD_SLOTS } from '../../game/logic/bonus'
 import { BOARD, GravityBoard, aimToX, pinPositions, slotCenterX } from '../../game/physics/gravityBoard'
 import { useGame } from '../../game/state/store'
 import { M, glow } from '../../materials'
@@ -13,7 +13,8 @@ import { Burst, type BurstHandle } from '../Effects/Burst'
 import { BonusStage } from './BonusStage'
 
 const BOARD_Y = 0.9
-const slotColor = (v: number): string => (v >= 30 ? '#ffd75e' : v >= 10 ? '#ff5cf0' : v >= 5 ? '#49ecff' : '#9aa7ff')
+const slotColor = (v: number): string => (v === GD_DOUBLE ? '#ffffff' : v >= 50 ? '#ffd75e' : v >= 25 ? '#ff5cf0' : v >= 15 ? '#49ecff' : '#9aa7ff')
+const slotLabel = (v: number): string => (v === GD_DOUBLE ? 'DOUBLE' : `${v}×`)
 
 function Pins({ heat }: { heat: Float32Array }) {
   const pins = useMemo(() => pinPositions(), [])
@@ -89,6 +90,11 @@ export default function GravityDrop() {
     if (!b || !board) return
     const v = view.current
 
+    // After a DOUBLE the board is re-armed for another drop.
+    if (b.status === 'aim' && board.dropped) {
+      board.reset()
+      v.landed = false
+    }
     if (b.status === 'dropping' && !board.dropped) board.drop(aimToX(b.aim) + b.jitter)
 
     // Slow motion for the final approach into the prize slots.
@@ -113,7 +119,8 @@ export default function GravityDrop() {
       }
       if (board.landedSlot !== null && !v.landed && board.speed < 2.5) {
         v.landed = true
-        audio.slot()
+        if (b.slots[board.landedSlot] === GD_DOUBLE) audio.bonus()
+        else audio.slot()
         burst.current?.fire(new THREE.Vector3(slotCenterX(board.landedSlot), BOARD_Y + 0.7, 0.5), 140, slotColor(b.slots[board.landedSlot]), 5)
         g.gdLand(board.landedSlot)
       }
@@ -132,7 +139,7 @@ export default function GravityDrop() {
   const shot = (): Shot => {
     const st = bonus?.status ?? 'aim'
     if (!board || st === 'aim') return { pos: [0, 5.4, 23], target: [0, 4.3, 0], fov: 40 }
-    if (st === 'landed' && bonus?.slot != null) {
+    if ((st === 'landed' || st === 'doubling') && bonus?.slot != null) {
       const x = slotCenterX(bonus.slot)
       return { pos: [x * 0.7, 2.2, 8.5], target: [x, 0.5, 0], fov: 40, speed: 2.5 }
     }
@@ -149,7 +156,7 @@ export default function GravityDrop() {
   const H = BOARD.top + 0.9
 
   return (
-    <BonusStage a="#ff5cf0" b="#7a3bff" radius={9} presenter={[6.6, 0, 2.2]} dust="#ffb8fa" energy={bonus?.status === 'dropping' ? 1.2 : 0.6}>
+    <BonusStage a="#ff5cf0" b="#7a3bff" radius={9} hostX={7.4} hostZ={2.6} dust="#ffb8fa" energy={bonus?.status === 'dropping' ? 1.2 : 0.6}>
       <BonusCamera shot={shot} drift={0.05} />
       <group position-y={BOARD_Y}>
         {/* back plate */}
@@ -204,7 +211,7 @@ export default function GravityDrop() {
               <mesh position={[0, 0.58, -0.03]}>
                 <planeGeometry args={[BOARD.slotW - 0.12, 0.62]} />
                 <meshBasicMaterial
-                  map={labelTexture(`${v}×`, { width: 256, height: 180, size: 120, color: slotColor(v), glow: slotColor(v) })}
+                  map={labelTexture(slotLabel(v), { width: 256, height: 180, size: v === GD_DOUBLE ? 48 : v >= 100 ? 88 : 112, color: slotColor(v), stroke: '#05040a' })}
                   transparent toneMapped={false} depthWrite={false}
                 />
               </mesh>

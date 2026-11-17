@@ -77,7 +77,7 @@ export function BetBoard() {
           <strong>{formatCredits(total)}</strong>
         </div>
         {broke ? (
-          <button className="btn-primary" onClick={() => { audio.ui(); g.topUp() }}>Refill demo credits</button>
+          <button className="btn-primary" onClick={() => { audio.ui(); g.topUp() }}>Refill Chaos Credits</button>
         ) : (
           <button className="btn-primary" disabled={!open} onClick={act(g.lockNow)}>
             {open ? (total > 0 ? 'Spin now' : 'Spin without stake') : 'Selections closed'}

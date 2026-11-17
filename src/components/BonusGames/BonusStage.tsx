@@ -6,14 +6,15 @@ import { useGame } from '../../game/state/store'
 import { M, glow } from '../../materials'
 import { createRingFloorMaterial } from '../../shaders'
 import { Confetti, GoldDust, Shockwave } from '../Effects/Ambient'
-import { Presenter } from '../Presenter/Presenter'
+import { Hosts } from '../Presenter/Presenter'
 
 interface Props {
   a: string
   b: string
   radius?: number
   pillars?: number
-  presenter?: [number, number, number]
+  hostX?: number
+  hostZ?: number
   dust?: string
   /** 0..1+, lets a bonus raise the energy of its arena. */
   energy?: number
@@ -21,7 +22,7 @@ interface Props {
 }
 
 /** Common arena shell: animated floor, ring of pillars, lighting, host, and the win celebration. */
-export function BonusStage({ a, b, radius = 9, pillars = 12, presenter = [5.6, 0, 2.4], dust, energy = 0.6, children }: Props) {
+export function BonusStage({ a, b, radius = 9, pillars = 12, hostX = 6, hostZ = 2.4, dust, energy = 0.6, children }: Props) {
   const phase = useGame((s) => s.phase)
   const mult = useGame((s) => s.bonusMultiplier)
   const tier = useGame((s) => s.tier)
@@ -43,7 +44,7 @@ export function BonusStage({ a, b, radius = 9, pillars = 12, presenter = [5.6, 0
     <group>
       <ambientLight intensity={0.2} color="#9a8fd0" />
       <hemisphereLight args={[a, '#05030a', 0.35]} />
-      <spotLight position={[4, 14, 10]} angle={0.55} penumbra={0.8} intensity={900} color="#fff3dc" castShadow={tier === 'high'} shadow-mapSize={[1024, 1024]} shadow-bias={-0.0004} />
+      <spotLight position={[4, 14, 10]} angle={0.55} penumbra={0.8} intensity={900} color="#fff3dc" castShadow={tier !== 'low'} shadow-mapSize={[1024, 1024]} shadow-bias={-0.0004} />
       <spotLight position={[-8, 10, 6]} angle={0.7} penumbra={1} intensity={420} color={a} />
       <pointLight ref={wash} position={[0, 7, 3]} intensity={160} distance={40} color={jackpot ? '#ffd75e' : b} />
 
@@ -77,8 +78,8 @@ export function BonusStage({ a, b, radius = 9, pillars = 12, presenter = [5.6, 0
         )
       })}
 
-      <GoldDust count={tier === 'high' ? 420 : 160} color={dust ?? b} size={[28, 14, 22]} center={[0, 7, 0]} />
-      <Presenter context="bonus" position={presenter} rotation-y={-0.5} scale={1.45} />
+      <GoldDust count={tier !== 'low' ? 420 : 160} color={dust ?? b} size={[28, 14, 22]} center={[0, 7, 0]} />
+      <Hosts context="bonus" x={hostX} z={hostZ} />
       <Confetti active={won} origin={[0, 11, 2]} spread={jackpot ? 20 : 14} />
       <Shockwave trigger={won} color={jackpot ? '#ffd75e' : a} radius={radius + 8} position={[0, 0.1, 0]} />
       <Shockwave trigger={jackpot} color="#ffffff" radius={radius + 14} position={[0, 0.14, 0]} />

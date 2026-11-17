@@ -88,9 +88,9 @@ function Settings({ onClose }: { onClose: () => void }) {
       {slider('ambient', 'Ambience')}
       <div className="popover-title">Graphics {settings.quality === 'auto' && <small>· auto → {tier}</small>}</div>
       <div className="seg">
-        {(['auto', 'high', 'low'] as Quality[]).map((q) => (
+        {(['auto', 'ultra', 'high', 'performance'] as Quality[]).map((q) => (
           <button key={q} className={settings.quality === q ? 'on' : ''} onClick={() => setQuality(q)}>
-            {q}
+            {q === 'performance' ? 'perf.' : q}
           </button>
         ))}
       </div>
@@ -181,7 +181,7 @@ export function Hud() {
         <Status />
         <div className="top-right">
           <div className="balance">
-            <small>Demo credits</small>
+            <small>Chaos Credits</small>
             <strong>{formatCredits(shown)}</strong>
           </div>
           <button className="icon-btn" aria-label="Sound and graphics settings" onPointerDown={(e) => e.stopPropagation()} onClick={() => { audio.ui(); setOpen((o) => !o) }}>

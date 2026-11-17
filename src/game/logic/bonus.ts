@@ -1,88 +1,106 @@
 import type { Rng } from '../probability/rng'
 
-/* ───────────────────────── DOUBLE OR NOTHING ───────────────────────── */
+const TAU = Math.PI * 2
+
+function weighted<T>(rng: Rng, table: readonly (readonly [T, number])[]): T {
+  const total = table.reduce((n, [, w]) => n + w, 0)
+  let r = rng.next() * total
+  for (const [v, w] of table) {
+    r -= w
+    if (r < 0) return v
+  }
+  return table[table.length - 1][0]
+}
+
+/* ───────────────────────── DOUBLE — coin flip ─────────────────────────
+ * Each face of the coin is given its own multiplier, then the coin is tossed.
+ * The face that lands up pays its multiplier. */
 
 export type CoinSide = 'SUN' | 'MOON'
 
 export interface DonState {
   kind: 'DON'
-  multiplier: number
-  tosses: number
-  maxTosses: number
-  pick: CoinSide | null
+  sun: number
+  moon: number
   /** Decided by the RNG before the coin leaves the pedestal. */
   outcome: CoinSide | null
   tossId: number
-  status: 'choose' | 'flipping' | 'won' | 'lost' | 'banked' | 'maxed'
+  multiplier: number
+  status: 'ready' | 'flipping' | 'done'
 }
 
-export const DON_START = 2
-export const DON_FLOOR = 1
+const COIN_TABLE = [[2, 22], [3, 20], [4, 16], [5, 14], [8, 10], [10, 8], [15, 5], [20, 3], [25, 2], [50, 1], [100, 0.4]] as const
 
-export function createDon(): DonState {
-  return { kind: 'DON', multiplier: DON_START, tosses: 0, maxTosses: 5, pick: null, outcome: null, tossId: 0, status: 'choose' }
+export function createDon(rng: Rng): DonState {
+  const sun = weighted(rng, COIN_TABLE)
+  let moon = weighted(rng, COIN_TABLE)
+  for (let i = 0; i < 20 && moon === sun; i++) moon = weighted(rng, COIN_TABLE)
+  return { kind: 'DON', sun, moon, outcome: null, tossId: 0, multiplier: 0, status: 'ready' }
 }
 
-export function donToss(s: DonState, pick: CoinSide, rng: Rng): DonState {
-  if (s.status !== 'choose' && s.status !== 'won') return s
-  const outcome: CoinSide = rng.next() < 0.5 ? 'SUN' : 'MOON'
-  return { ...s, pick, outcome, tossId: s.tossId + 1, status: 'flipping' }
+export function donFlip(s: DonState, rng: Rng): DonState {
+  if (s.status !== 'ready') return s
+  return { ...s, outcome: rng.next() < 0.5 ? 'SUN' : 'MOON', tossId: s.tossId + 1, status: 'flipping' }
 }
 
 export function donLand(s: DonState): DonState {
-  if (s.status !== 'flipping') return s
-  if (s.outcome === s.pick) {
-    const tosses = s.tosses + 1
-    return { ...s, multiplier: s.multiplier * 2, tosses, status: tosses >= s.maxTosses ? 'maxed' : 'won' }
-  }
-  return { ...s, multiplier: DON_FLOOR, tosses: s.tosses + 1, status: 'lost' }
+  if (s.status !== 'flipping' || !s.outcome) return s
+  return { ...s, multiplier: s.outcome === 'SUN' ? s.sun : s.moon, status: 'done' }
 }
 
-/* ───────────────────────── TREASURE STORM ───────────────────────── */
+/* ───────────────────────── TREASURE — target wall ─────────────────────────
+ * The wall shows its multipliers, covers them, shuffles, and the player has a
+ * few seconds to choose one target. That target's multiplier is the prize. */
 
 export const TS_COLS = 12
 export const TS_ROWS = 5
 export const TS_COUNT = TS_COLS * TS_ROWS
-export const TS_PICKS = 3
+export const TS_PICK_SECONDS = 12
 
 const TS_TABLE: readonly [value: number, count: number][] = [
-  [1, 14], [2, 14], [3, 10], [4, 7], [5, 6], [8, 4], [10, 2], [15, 1], [25, 1], [50, 1],
+  [5, 14], [7, 12], [10, 10], [15, 8], [20, 6], [25, 4], [50, 3], [75, 2], [100, 1],
 ]
 
 export interface TsState {
   kind: 'TS'
-  /** Every vault's content is fixed when the bonus starts. */
+  /** Layout shown before the shuffle. */
+  preview: number[]
+  /** Where every multiplier really is once the wall has been covered and shuffled. */
   values: number[]
-  picks: number[]
-  picksLeft: number
-  total: number
-  status: 'pick' | 'done'
+  pick: number | null
+  pickEndsAt: number
+  multiplier: number
+  status: 'preview' | 'shuffle' | 'pick' | 'done'
 }
 
 export function createTs(rng: Rng): TsState {
-  const values: number[] = []
-  for (const [v, c] of TS_TABLE) for (let i = 0; i < c; i++) values.push(v)
-  return { kind: 'TS', values: rng.shuffle(values), picks: [], picksLeft: TS_PICKS, total: 0, status: 'pick' }
+  const all: number[] = []
+  for (const [v, c] of TS_TABLE) for (let i = 0; i < c; i++) all.push(v)
+  return { kind: 'TS', preview: rng.shuffle(all), values: rng.shuffle(all), pick: null, pickEndsAt: 0, multiplier: 0, status: 'preview' }
 }
 
 export function tsPick(s: TsState, index: number): TsState {
-  if (s.status !== 'pick' || s.picks.includes(index) || index < 0 || index >= s.values.length) return s
-  const picksLeft = s.picksLeft - 1
-  return { ...s, picks: [...s.picks, index], picksLeft, total: s.total + s.values[index], status: picksLeft === 0 ? 'done' : 'pick' }
+  if (s.status !== 'pick' || index < 0 || index >= s.values.length) return s
+  return { ...s, pick: index, multiplier: s.values[index], status: 'done' }
 }
 
-/* ───────────────────────── GRAVITY DROP ───────────────────────── */
+/* ───────────────────────── GRAVITY — pin board ─────────────────────────
+ * A ball falls through the pins into a slot. Multiplier slots pay; a DOUBLE
+ * slot doubles every multiplier on the board and the ball is dropped again. */
 
 export const GD_SLOTS = 9
+export const GD_DOUBLE = 0
+export const GD_MAX_DOUBLES = 3
 
 export interface GdState {
   kind: 'GD'
+  /** Multiplier per slot; `GD_DOUBLE` marks a DOUBLE slot. */
   slots: number[]
-  /** Launch position across the top of the board, 0..1. */
   aim: number
-  /** Tiny RNG-drawn offset applied to the release point. */
   jitter: number
-  status: 'aim' | 'dropping' | 'landed'
+  dropId: number
+  doubles: number
+  status: 'aim' | 'dropping' | 'doubling' | 'landed'
   slot: number | null
   multiplier: number
 }
@@ -90,163 +108,106 @@ export interface GdState {
 export function createGd(rng: Rng): GdState {
   return {
     kind: 'GD',
-    slots: rng.shuffle([2, 3, 3, 5, 5, 8, 10, 15, 30]),
-    aim: 0.5,
-    jitter: 0,
-    status: 'aim',
-    slot: null,
-    multiplier: 0,
+    slots: rng.shuffle([7, 10, 15, 20, 25, 35, 50, GD_DOUBLE, GD_DOUBLE]),
+    aim: 0.5, jitter: 0, dropId: 0, doubles: 0, status: 'aim', slot: null, multiplier: 0,
   }
 }
 
 export function gdDrop(s: GdState, rng: Rng): GdState {
   if (s.status !== 'aim') return s
-  return { ...s, jitter: rng.range(-0.04, 0.04), status: 'dropping' }
+  return { ...s, jitter: rng.range(-0.04, 0.04), dropId: s.dropId + 1, status: 'dropping' }
 }
 
 export function gdLand(s: GdState, slot: number): GdState {
   if (s.status !== 'dropping') return s
   const i = Math.max(0, Math.min(GD_SLOTS - 1, slot))
-  return { ...s, status: 'landed', slot: i, multiplier: s.slots[i] }
+  if (s.slots[i] !== GD_DOUBLE) return { ...s, status: 'landed', slot: i, multiplier: s.slots[i] }
+  const doubles = s.doubles + 1
+  let slots = s.slots.map((v) => v * 2)
+  // After the last allowed double the DOUBLE slots turn into the top prize.
+  if (doubles >= GD_MAX_DOUBLES) {
+    const top = Math.max(...slots)
+    slots = slots.map((v) => (v === GD_DOUBLE ? top : v))
+  }
+  return { ...s, slots, doubles, slot: i, status: 'doubling' }
 }
 
-/* ───────────────────────── CHAOS MODE ───────────────────────── */
-
-export interface Shard {
-  kind: 'mul' | 'add' | 'void'
-  value: number
-  label: string
+export function gdRearm(s: GdState): GdState {
+  return s.status === 'doubling' ? { ...s, status: 'aim', slot: null } : s
 }
 
-export interface CometRun {
-  /** Angle (radians) at `startedAt` while cruising. */
-  startAngle: number
-  startedAt: number
-  /** Set once the player hits STOP. */
-  stopAngle: number | null
-  stoppedAt: number | null
-  decel: number
-  finalAngle: number | null
-  finalIndex: number | null
-}
+/* ───────────────────────── CHAOS — grand wheel ─────────────────────────
+ * The player backs one of three pointers, then the grand wheel is spun. The
+ * segment under their pointer pays. DOUBLE / TRIPLE multiply the whole wheel
+ * and trigger another spin. */
+
+export const CM_SEGMENTS = 48
+export const CM_SEG_ANGLE = TAU / CM_SEGMENTS
+export const CM_DOUBLE = -2
+export const CM_TRIPLE = -3
+export const CM_MAX_BOOSTS = 3
+export const CM_PICK_SECONDS = 12
+/** Pointer positions, in segments counter-clockwise from the top of the wheel. */
+export const CM_POINTER_OFFSETS = [6, 0, -6] as const
+export const CM_POINTER_NAMES = ['Azure', 'Gold', 'Rose'] as const
+export const CM_POINTER_COLORS = ['#49ecff', '#ffd75e', '#ff5cf0'] as const
 
 export interface CmState {
   kind: 'CM'
-  cores: number[]
-  picked: number | null
+  wheel: number[]
+  pick: number | null
+  pickEndsAt: number
+  stage: 'pick' | 'spinning' | 'boost' | 'result'
+  spinId: number
+  /** Resting angle of the grand wheel (radians, clockwise). */
+  angle: number
+  landed: number[] | null
+  boosts: number
+  lastBoost: number
   multiplier: number
-  stage: 'select' | 'reveal' | 'surge' | 'stopping' | 'applied' | 'decide' | 'done'
-  ring: Shard[]
-  surges: number
-  maxSurges: number
-  comet: CometRun | null
-  lastShard: number | null
 }
 
-export const CM_SHARDS = 8
-export const CM_COMET_SPEED = 4.4
-export const CM_SHARD_ANGLE = (Math.PI * 2) / CM_SHARDS
-const TAU = Math.PI * 2
-
-const mul = (v: number): Shard => ({ kind: 'mul', value: v, label: `×${v}` })
-const add = (v: number): Shard => ({ kind: 'add', value: v, label: `+${v}` })
-const VOID: Shard = { kind: 'void', value: 0.5, label: 'VOID' }
-
-function buildRing(surge: number, rng: Rng): Shard[] {
-  const sets: Shard[][] = [
-    [mul(2), add(5), mul(1.5), add(10), mul(2), add(5), mul(3), add(15)],
-    [mul(2), VOID, mul(3), add(20), mul(2), VOID, mul(4), add(10)],
-    [mul(3), VOID, mul(5), VOID, mul(2), add(50), VOID, mul(3)],
-  ]
-  return rng.shuffle(sets[Math.min(surge, sets.length - 1)])
-}
-
-export function createCm(rng: Rng): CmState {
+export function createCm(rng: Rng, now: number): CmState {
+  const wheel: number[] = []
+  const table: [number, number][] = [[10, 12], [15, 9], [20, 8], [25, 6], [50, 5], [100, 3], [CM_DOUBLE, 4], [CM_TRIPLE, 1]]
+  for (const [v, c] of table) for (let i = 0; i < c; i++) wheel.push(v)
   return {
-    kind: 'CM',
-    cores: rng.shuffle([8, 12, 16, 25]),
-    picked: null,
-    multiplier: 0,
-    stage: 'select',
-    ring: buildRing(0, rng),
-    surges: 0,
-    maxSurges: 3,
-    comet: null,
-    lastShard: null,
+    kind: 'CM', wheel: rng.shuffle(wheel), pick: null, pickEndsAt: now + CM_PICK_SECONDS * 1000, stage: 'pick',
+    spinId: 0, angle: CM_SEG_ANGLE / 2, landed: null, boosts: 0, lastBoost: 0, multiplier: 0,
   }
 }
 
-export function cmPick(s: CmState, i: number): CmState {
-  if (s.stage !== 'select' || i < 0 || i >= s.cores.length) return s
-  return { ...s, picked: i, multiplier: s.cores[i], stage: 'reveal' }
+/** Which segment sits under pointer `p` when the wheel rests at `angle`. */
+export function cmSegmentAt(angle: number, p: number): number {
+  const a = (((angle + CM_POINTER_OFFSETS[p] * CM_SEG_ANGLE) % TAU) + TAU) % TAU
+  return Math.min(CM_SEGMENTS - 1, Math.floor(a / CM_SEG_ANGLE))
 }
 
-export function cmBeginSurge(s: CmState, now: number, rng: Rng): CmState {
-  if (s.stage !== 'reveal' && s.stage !== 'decide') return s
-  const ring = s.stage === 'decide' ? buildRing(s.surges, rng) : s.ring
-  return {
-    ...s,
-    ring,
-    stage: 'surge',
-    lastShard: null,
-    comet: { startAngle: rng.range(0, TAU), startedAt: now, stopAngle: null, stoppedAt: null, decel: 0, finalAngle: null, finalIndex: null },
+export function cmPick(s: CmState, p: number): CmState {
+  if (s.stage !== 'pick' || s.pick !== null || p < 0 || p > 2) return s
+  return { ...s, pick: p }
+}
+
+export function cmBeginSpin(s: CmState): CmState {
+  if (s.pick === null || (s.stage !== 'pick' && s.stage !== 'boost')) return s
+  return { ...s, stage: 'spinning', spinId: s.spinId + 1, landed: null }
+}
+
+/** Resolves a finished spin from the wheel's physical resting angle. */
+export function cmLand(s: CmState, finalAngle: number): CmState {
+  if (s.stage !== 'spinning' || s.pick === null) return s
+  const landed = [0, 1, 2].map((p) => cmSegmentAt(finalAngle, p))
+  const value = s.wheel[landed[s.pick]]
+  const angle = finalAngle % TAU
+  if (value > 0) return { ...s, angle, landed, multiplier: value, stage: 'result' }
+  const factor = -value
+  const boosts = s.boosts + 1
+  let wheel = s.wheel.map((v) => (v > 0 ? Math.min(v * factor, 10000) : v))
+  if (boosts >= CM_MAX_BOOSTS) {
+    const top = Math.max(...wheel)
+    wheel = wheel.map((v) => (v > 0 ? v : top))
   }
-}
-
-/** Angle of the comet at `now`, for both cruising and braking. Pure function of time. */
-export function cometAngle(c: CometRun, now: number): number {
-  if (c.stoppedAt === null || c.stopAngle === null) {
-    return c.startAngle + (CM_COMET_SPEED * (now - c.startedAt)) / 1000
-  }
-  const tStop = CM_COMET_SPEED / c.decel
-  const t = Math.min(tStop, (now - c.stoppedAt) / 1000)
-  return c.stopAngle + CM_COMET_SPEED * t - 0.5 * c.decel * t * t
-}
-
-export const cometBrakeTime = (c: CometRun): number => (c.decel > 0 ? CM_COMET_SPEED / c.decel : 0)
-
-/** Shard i spans [i, i+1) * CM_SHARD_ANGLE. */
-export function shardAtAngle(angle: number): number {
-  const a = ((angle % TAU) + TAU) % TAU
-  return Math.min(CM_SHARDS - 1, Math.floor(a / CM_SHARD_ANGLE))
-}
-
-/** The player's timing fixes the stop angle; the RNG fixes the braking force. Together they fix the shard. */
-export function cmStop(s: CmState, now: number, rng: Rng): CmState {
-  if (s.stage !== 'surge' || !s.comet) return s
-  const stopAngle = cometAngle(s.comet, now)
-  const decel = rng.range(1.5, 2.6)
-  let finalAngle = stopAngle + (CM_COMET_SPEED * CM_COMET_SPEED) / (2 * decel)
-  // Never rest exactly on a divider between two shards.
-  const frac = (((finalAngle % CM_SHARD_ANGLE) + CM_SHARD_ANGLE) % CM_SHARD_ANGLE) / CM_SHARD_ANGLE
-  let d = decel
-  if (frac < 0.06 || frac > 0.94) {
-    finalAngle += CM_SHARD_ANGLE * 0.1
-    d = (CM_COMET_SPEED * CM_COMET_SPEED) / (2 * (finalAngle - stopAngle))
-  }
-  return {
-    ...s,
-    stage: 'stopping',
-    comet: { ...s.comet, stopAngle, stoppedAt: now, decel: d, finalAngle, finalIndex: shardAtAngle(finalAngle) },
-  }
-}
-
-export function applyShard(multiplier: number, shard: Shard): number {
-  if (shard.kind === 'mul') return Math.round(multiplier * shard.value)
-  if (shard.kind === 'add') return multiplier + shard.value
-  return Math.max(1, Math.ceil(multiplier * shard.value))
-}
-
-export function cmLand(s: CmState): CmState {
-  if (s.stage !== 'stopping' || !s.comet || s.comet.finalIndex === null) return s
-  const idx = s.comet.finalIndex
-  const surges = s.surges + 1
-  return { ...s, multiplier: applyShard(s.multiplier, s.ring[idx]), lastShard: idx, surges, stage: 'applied' }
-}
-
-export function cmAfterApply(s: CmState): CmState {
-  if (s.stage !== 'applied') return s
-  return { ...s, stage: s.surges >= s.maxSurges ? 'done' : 'decide' }
+  return { ...s, angle, landed, wheel, boosts, lastBoost: factor, stage: 'boost' }
 }
 
 export const JACKPOT_THRESHOLD = 100
