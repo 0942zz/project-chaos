@@ -61,7 +61,7 @@ function Status() {
   )
 }
 
-function Settings({ onClose }: { onClose: () => void }) {
+export function Settings({ onClose, inline = false }: { onClose: () => void; inline?: boolean }) {
   const settings = useGame((s) => s.settings)
   const tier = useGame((s) => s.tier)
   const setVolume = useGame((s) => s.setVolume)
@@ -81,7 +81,7 @@ function Settings({ onClose }: { onClose: () => void }) {
     </label>
   )
   return (
-    <div className="popover" onPointerDown={(e) => e.stopPropagation()}>
+    <div className={inline ? 'settings-inline' : 'popover'} onPointerDown={(e) => e.stopPropagation()}>
       <div className="popover-title">Sound</div>
       {slider('music', 'Music')}
       {slider('sfx', 'Effects')}

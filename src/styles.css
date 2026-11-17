@@ -1,11 +1,11 @@
 :root {
   --gold: #f5c867;
   --gold-deep: #b8862b;
-  --ink: #05040a;
-  --glass: rgba(14, 11, 26, 0.62);
+  --ink: #050506;
+  --glass: rgba(12, 12, 14, 0.72);
   --line: rgba(245, 200, 103, 0.22);
   --text: #f4f1ea;
-  --muted: #a39cba;
+  --muted: #9d978c;
   --display: 'Oswald', 'Arial Narrow', Impact, sans-serif;
   --ui: 'Manrope', system-ui, -apple-system, 'Segoe UI', sans-serif;
   --pad: clamp(10px, 1.6vw, 22px);
@@ -103,10 +103,9 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--gold); outl
   display: flex; align-items: center; gap: 12px;
   padding: 8px 18px 8px 10px;
   min-height: 46px;
-  border-radius: 999px;
+  border-radius: 6px;
   border: 1px solid var(--line);
   background: var(--glass);
-  backdrop-filter: blur(14px);
 }
 .status-label { font-family: var(--display); font-weight: 500; letter-spacing: 0.18em; text-transform: uppercase; font-size: 14px; padding-left: 8px; white-space: nowrap; }
 .status-timer { position: relative; width: 34px; height: 34px; display: grid; place-items: center; }
@@ -130,7 +129,7 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--gold); outl
   padding: 16px;
   border-radius: 14px;
   border: 1px solid var(--line);
-  background: rgba(12, 9, 22, 0.92);
+  background: rgba(12, 12, 14, 0.95);
   backdrop-filter: blur(18px);
   box-shadow: 0 24px 60px rgba(0, 0, 0, 0.6);
   z-index: 5;
@@ -283,7 +282,7 @@ input[type='range'] { accent-color: var(--gold); width: 100%; }
 .bh-row { display: flex; align-items: center; justify-content: center; gap: 22px; margin-top: 10px; }
 .bh-value small { display: block; font-size: 10px; font-weight: 700; letter-spacing: 0.2em; text-transform: uppercase; color: var(--muted); }
 .bh-value strong { font-family: var(--display); font-weight: 700; font-size: 40px; line-height: 1; color: #fff; font-variant-numeric: tabular-nums; }
-.bh-text { margin: 10px auto 12px; max-width: 54ch; font-size: 14px; line-height: 1.45; color: #d9d4e8; min-height: 2.9em; text-wrap: balance; }
+.bh-text { margin: 10px auto 12px; max-width: 54ch; font-size: 14px; line-height: 1.45; color: #dcd7cc; min-height: 2.9em; text-wrap: balance; }
 .bh-actions { display: flex; align-items: center; justify-content: center; gap: 10px; flex-wrap: wrap; min-height: 48px; }
 .ladder, .picks { display: flex; gap: 6px; }
 .ladder i, .picks i {
@@ -309,7 +308,7 @@ input[type='range'] { accent-color: var(--gold); width: 100%; }
 .curtain {
   position: absolute; inset: 0; z-index: 20;
   display: grid; place-items: center;
-  background: radial-gradient(circle at 50% 50%, #1a0f33, #030208 70%);
+  background: radial-gradient(circle at 50% 50%, #17140f, #040405 70%);
   opacity: 0; pointer-events: none;
   transition: opacity 0.55s ease;
 }
@@ -408,3 +407,48 @@ input[type='range'] { accent-color: var(--gold); width: 100%; }
 .btn-pointer:hover:not(:disabled) { transform: translateY(-1px); filter: brightness(1.2); }
 .btn-pointer:disabled { opacity: 0.3; }
 .btn-pointer.on, .btn-pointer.on:disabled { opacity: 1; color: #120c02; background: var(--p); }
+
+/* ───────── main menu ───────── */
+.menu {
+  position: absolute; inset: 0; z-index: 30;
+  display: flex; align-items: center; gap: clamp(24px, 5vw, 80px);
+  padding: clamp(24px, 6vw, 96px);
+  background: linear-gradient(90deg, rgba(4, 4, 5, 0.94) 0%, rgba(4, 4, 5, 0.78) 38%, rgba(4, 4, 5, 0.18) 100%);
+}
+.menu-col { width: min(420px, 100%); flex: none; }
+.menu-kicker { font-size: 11px; font-weight: 700; letter-spacing: 0.4em; text-transform: uppercase; color: var(--muted); }
+.menu .wordmark { margin: 12px 0 36px; font-size: clamp(44px, 7vw, 84px); letter-spacing: 0.1em; }
+.menu-nav { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; margin-bottom: 40px; }
+.menu-item {
+  position: relative; padding: 10px 0 10px 22px;
+  font-family: var(--display); font-weight: 500; font-size: 24px; letter-spacing: 0.16em; text-transform: uppercase;
+  color: #b9b3a6; transition: color 0.2s, padding-left 0.2s;
+}
+.menu-item::before { content: ''; position: absolute; left: 0; top: 50%; width: 10px; height: 1px; background: currentColor; transition: width 0.2s; }
+.menu-item:hover, .menu-item.on { color: var(--text); padding-left: 34px; }
+.menu-item:hover::before, .menu-item.on::before { width: 22px; }
+.menu-item.primary { color: var(--gold); font-weight: 700; font-size: 34px; }
+.menu-note { font-size: 12px; line-height: 1.7; color: #7f7a70; margin: 0; }
+.menu-panel {
+  flex: 1; max-width: 640px; max-height: 100%; overflow: auto;
+  padding: 28px 32px; border-left: 1px solid var(--line);
+  background: rgba(8, 8, 9, 0.94);
+}
+.menu-panel.narrow { max-width: 340px; }
+.menu-panel h2 { margin: 0 0 18px; font-family: var(--display); font-weight: 500; font-size: 20px; letter-spacing: 0.2em; text-transform: uppercase; color: var(--gold); }
+.steps { margin: 0 0 20px; padding-left: 20px; font-size: 14px; line-height: 1.6; color: #dcd7cc; }
+.steps li { margin-bottom: 6px; }
+.odds { width: 100%; border-collapse: collapse; font-size: 13px; line-height: 1.45; margin-bottom: 16px; }
+.odds th { text-align: left; font-size: 10px; font-weight: 700; letter-spacing: 0.18em; text-transform: uppercase; color: var(--muted); padding: 0 12px 8px 0; }
+.odds td { padding: 8px 12px 8px 0; border-top: 1px solid rgba(255, 255, 255, 0.08); vertical-align: top; color: #dcd7cc; }
+.odds td:first-child { white-space: nowrap; font-family: var(--display); font-weight: 700; letter-spacing: 0.06em; color: var(--text); }
+.odds td:nth-child(2) { white-space: nowrap; font-variant-numeric: tabular-nums; color: var(--muted); }
+.odds i { display: inline-block; width: 10px; height: 10px; margin-right: 10px; border: 1px solid; vertical-align: baseline; }
+.settings-inline .btn-ghost.wide { margin-top: 16px; }
+.menu .loading-status { margin-bottom: 40px; }
+@media (max-width: 860px) {
+  .menu { flex-direction: column; align-items: stretch; justify-content: flex-start; overflow: auto; background: rgba(4, 4, 5, 0.88); }
+  .menu-col { width: 100%; }
+  .menu-panel, .menu-panel.narrow { max-width: none; border-left: 0; border-top: 1px solid var(--line); padding: 20px 0; background: none; flex: none; }
+  .menu-nav { margin-bottom: 24px; }
+}

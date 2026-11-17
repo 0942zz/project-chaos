@@ -7,7 +7,7 @@ export function createLedWallMaterial(): THREE.ShaderMaterial {
     toneMapped: false,
     uniforms: {
       uTime: { value: 0 },
-      uA: { value: new THREE.Color('#5a2bd6') },
+      uA: { value: new THREE.Color('#8a5a1c') },
       uB: { value: new THREE.Color('#f5c867') },
       uPower: { value: 0.6 },
       uSpeed: { value: 1 },

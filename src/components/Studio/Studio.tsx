@@ -30,22 +30,22 @@ function moodFor(g: GameStore, now: number): Mood {
     case 'BETTING': {
       const left = Math.max(0, (g.bettingEndsAt - now) / 1000)
       const build = 1 - Math.min(1, left / 6)
-      return { a: '#5a2bd6', b: '#f5c867', wall: 0.55 + build * 0.5, speed: 0.8 + build * 1.6, key: 60 + build * 50, beams: 0.22 + build * 0.4, sweep: 0.5 + build }
+      return { a: '#8a5a1c', b: '#f5c867', wall: 0.5 + build * 0.45, speed: 0.8 + build * 1.6, key: 62 + build * 48, beams: 0.16 + build * 0.34, sweep: 0.5 + build }
     }
     case 'LOCKED':
-      return { a: '#1c3fd8', b: '#ffffff', wall: 0.35, speed: 0.4, key: 45, beams: 0.15, sweep: 0.2 }
+      return { a: '#2b3350', b: '#e9e4d8', wall: 0.3, speed: 0.4, key: 45, beams: 0.12, sweep: 0.2 }
     case 'SPINNING':
-      return { a: '#d81cc0', b: '#35e0ff', wall: 1.1, speed: 3.2, key: 80, beams: 0.75, sweep: 3.2 }
+      return { a: '#c98a2b', b: '#fff1dc', wall: 0.95, speed: 3.2, key: 82, beams: 0.6, sweep: 3.2 }
     case 'DECELERATING':
-      return { a: '#7a1dd1', b: '#35e0ff', wall: 0.8, speed: 1.4, key: 90, beams: 0.5, sweep: 1.2 }
+      return { a: '#8a5a1c', b: '#fff1dc', wall: 0.7, speed: 1.4, key: 92, beams: 0.4, sweep: 1.2 }
     case 'RESULT':
     case 'BONUS_INTRO': {
       const info = g.result ? SEGMENTS[g.result.type] : SEGMENTS['1']
       const bonus = g.result ? isBonus(g.result.type) : false
-      return { a: info.glow, b: bonus ? '#ffffff' : '#f5c867', wall: bonus ? 1.7 : 1.0, speed: bonus ? 4 : 1.5, key: bonus ? 140 : 110, beams: bonus ? 1.0 : 0.5, sweep: bonus ? 4 : 1 }
+      return { a: info.glow, b: bonus ? '#ffffff' : '#f5c867', wall: bonus ? 1.3 : 0.8, speed: bonus ? 4 : 1.5, key: bonus ? 130 : 105, beams: bonus ? 0.8 : 0.4, sweep: bonus ? 4 : 1 }
     }
     default:
-      return { a: '#5a2bd6', b: '#f5c867', wall: 0.6, speed: 0.8, key: 70, beams: 0.25, sweep: 0.5 }
+      return { a: '#8a5a1c', b: '#f5c867', wall: 0.5, speed: 0.8, key: 70, beams: 0.18, sweep: 0.5 }
   }
 }
 
@@ -251,7 +251,7 @@ function makeScreen(): Screen {
 
 function clearScreen({ g, c }: Screen, title: string) {
   const grad = g.createLinearGradient(0, 0, 0, c.height)
-  grad.addColorStop(0, '#0d0920')
+  grad.addColorStop(0, '#111014')
   grad.addColorStop(1, '#040308')
   g.fillStyle = grad
   g.fillRect(0, 0, c.width, c.height)
@@ -277,7 +277,7 @@ function drawStatus(sc: Screen, s: GameStore, cd: number) {
     g.font = `700 ${info.bonus ? 120 : 210}px ${DISPLAY_FONT}`
     g.fillText(info.label, c.width / 2, info.bonus ? 270 : 300)
   } else {
-    g.fillStyle = '#35e0ff'
+    g.fillStyle = '#f4f1ea'
     g.font = `700 110px ${DISPLAY_FONT}`
     g.fillText(s.phase === 'LOCKED' ? 'LOCKED' : 'SPINNING', c.width / 2, 270)
   }
@@ -376,8 +376,8 @@ export function Studio() {
     key.current.intensity = damp(key.current.intensity, m.key * 9, 4, dt)
     washA.current.color.lerp(col.set(m.a), k)
     washB.current.color.lerp(col.set(m.b), k)
-    washA.current.intensity = damp(washA.current.intensity, 140 + m.wall * 260, 4, dt)
-    washB.current.intensity = damp(washB.current.intensity, 100 + m.wall * 160, 4, dt)
+    washA.current.intensity = damp(washA.current.intensity, 60 + m.wall * 150, 4, dt)
+    washB.current.intensity = damp(washB.current.intensity, 70 + m.wall * 130, 4, dt)
   })
 
   const bonusHit = result !== null && isBonus(result.type) && (phase === 'RESULT' || phase === 'BONUS_INTRO')
@@ -386,8 +386,8 @@ export function Studio() {
 
   return (
     <group>
-      <ambientLight intensity={0.22} color="#8f86c9" />
-      <hemisphereLight args={['#6a5acd', '#0a0612', 0.5]} />
+      <ambientLight intensity={0.2} color="#a39d90" />
+      <hemisphereLight args={['#5b574c', '#060607', 0.45]} />
       <primitive object={target} />
       <spotLight
         ref={key}
@@ -401,8 +401,8 @@ export function Studio() {
         shadow-mapSize={tier === 'ultra' ? [2048, 2048] : [1024, 1024]}
         shadow-bias={-0.0003}
       />
-      <spotLight position={[-7, 9, 8]} target={target} angle={0.6} penumbra={1} intensity={260} color="#9db4ff" />
-      <pointLight ref={washA} position={[-9, 5, -6]} intensity={300} distance={40} color="#5a2bd6" />
+      <spotLight position={[-7, 9, 8]} target={target} angle={0.6} penumbra={1} intensity={200} color="#cfd6e6" />
+      <pointLight ref={washA} position={[-9, 5, -6]} intensity={300} distance={40} color="#8a5a1c" />
       <pointLight ref={washB} position={[9, 5, -6]} intensity={200} distance={40} color="#f5c867" />
       <pointLight position={[0, 1.6, 4]} intensity={30} distance={14} color="#ffd98a" />
 
@@ -432,8 +432,8 @@ export function Studio() {
       <Architecture />
       <MovingHeads mood={mood} />
       <InfoScreens />
-      <Sculpture position={[-12.5, 4.2, 1.5]} color="#35e0ff" />
-      <Sculpture position={[12.5, 4.2, 1.5]} color="#ff5cf0" />
+      <Sculpture position={[-12.5, 4.2, 1.5]} color="#f5c867" />
+      <Sculpture position={[12.5, 4.2, 1.5]} color="#f5c867" />
 
       <Wheel />
       <Hosts context="studio" x={4.9} z={0.6} y={0.3} />

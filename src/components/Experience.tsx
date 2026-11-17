@@ -19,10 +19,10 @@ function StudioReflections() {
       <color attach="background" args={['#020106']} />
       <Lightformer form="rect" intensity={5} color="#fff3d6" position={[0, 6, 6]} scale={[14, 2, 1]} />
       <Lightformer form="rect" intensity={3} color="#ffd98a" position={[-8, 2, 2]} rotation-y={Math.PI / 2} scale={[10, 1.2, 1]} />
-      <Lightformer form="rect" intensity={3} color="#9db4ff" position={[8, 2, 2]} rotation-y={-Math.PI / 2} scale={[10, 1.2, 1]} />
-      <Lightformer form="ring" intensity={4} color="#b98cff" position={[0, 3, -9]} scale={7} />
+      <Lightformer form="rect" intensity={3} color="#e6e9f2" position={[8, 2, 2]} rotation-y={-Math.PI / 2} scale={[10, 1.2, 1]} />
+      <Lightformer form="ring" intensity={4} color="#ffe2a8" position={[0, 3, -9]} scale={7} />
       <Lightformer form="circle" intensity={6} color="#ffffff" position={[3, 9, 0]} rotation-x={Math.PI / 2} scale={3} />
-      <Lightformer form="rect" intensity={2} color="#ff8ad8" position={[0, -4, 3]} rotation-x={-Math.PI / 2} scale={[12, 3, 1]} />
+      <Lightformer form="rect" intensity={2} color="#c9b79a" position={[0, -4, 3]} rotation-x={-Math.PI / 2} scale={[12, 3, 1]} />
     </Environment>
   )
 }
@@ -64,8 +64,8 @@ export default function Experience({ onReady }: { onReady: () => void }) {
       gl={{ antialias: true, powerPreference: 'high-performance', stencil: false }}
       camera={{ fov: 38, position: [-3.6, 7.6, 13.4], near: 0.1, far: 140 }}
     >
-      <color attach="background" args={['#030208']} />
-      <fog attach="fog" args={['#05030c', 24, 75]} />
+      <color attach="background" args={['#040405']} />
+      <fog attach="fog" args={['#050506', 24, 75]} />
       <PerformanceMonitor onDecline={() => setTier('low')} flipflops={2} />
       <StudioReflections />
       <Suspense fallback={null}>
