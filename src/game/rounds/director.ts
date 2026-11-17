@@ -26,12 +26,12 @@ export function useRoundDirector(): void {
 
       case 'BETTING': {
         const total = TIMING.betting * K
-        g.setBettingEndsAt(performance.now() + total * 1000)
+        if (g.mode !== 'mp') g.setBettingEndsAt(performance.now() + total * 1000)
         audio.setMood('calm')
         for (let s = 5; s >= 1; s--) {
           if (total - s > 0) timers.push(window.setTimeout(() => audio.beep(s === 1), (total - s) * 1000))
         }
-        timers.push(window.setTimeout(() => useGame.getState().lockNow(), total * 1000))
+        if (g.mode !== 'mp') timers.push(window.setTimeout(() => useGame.getState().lockNow(), total * 1000))
         break
       }
 

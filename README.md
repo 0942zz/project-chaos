@@ -62,12 +62,15 @@ bun x tsc --noEmit
 
 Sound menu → Graphics: Auto, Ultra, High, Performance.
 
-## Not built yet
 
-LAN multiplayer, accounts and the shared wallet are planned but not implemented. The game is single-player only.
+## LAN multiplayer
 
-## Tech
+Up to 8 players share one wallet of 1,000 Chaos Credits. The host PC runs the server (Bun required) and must stay on:
 
-React, TypeScript, Three.js, React Three Fiber, Drei, Rapier 2D, Zustand, Web Audio API, Vite.
+```bash
+bun run start
+```
 
-Game logic lives in `src/game/` and is independent of rendering (`src/components/`).
+It prints the addresses to open. Other devices on the same network open `http://<host-ip>:3000` in a browser, create an account, and join with the 4-letter room code. Accounts and history are stored in `data/chaos.sqlite` on the host. The firewall on the host must allow port 3000.
+
+Automated multiplayer test (nine real clients, about three minutes): `bun run scripts/mp-test.ts`

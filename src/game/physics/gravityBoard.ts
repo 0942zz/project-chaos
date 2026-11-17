@@ -38,7 +38,7 @@ const STEP = 1 / 240
  * ball physically ends up in — the game never decides it any other way.
  */
 export class GravityBoard {
-  private world: RAPIER.World
+  private world!: RAPIER.World
   private ball: RAPIER.RigidBody | null = null
   private acc = 0
   private stillFor = 0
@@ -52,6 +52,10 @@ export class GravityBoard {
   landedSlot: number | null = null
 
   private constructor() {
+    this.build()
+  }
+
+  private build(): void {
     this.world = new RAPIER.World({ x: 0, y: -17 })
     this.world.timestep = STEP
     const fixed = (desc: RAPIER.ColliderDesc) => this.world.createCollider(desc.setRestitution(0.55).setFriction(0.05))
@@ -83,8 +87,10 @@ export class GravityBoard {
 
   /** Removes the ball so another one can be dropped (used after a DOUBLE). */
   reset(): void {
-    if (this.ball) this.world.removeRigidBody(this.ball)
+    this.world.free()
+    this.build()
     this.ball = null
+    this.nudges = 0
     this.landedSlot = null
     this.acc = 0
     this.stillFor = 0

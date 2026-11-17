@@ -7,6 +7,7 @@ import { Hud } from './components/Interface/Hud'
 import { Loading } from './components/Interface/Loading'
 import { useRoundDirector } from './game/rounds/director'
 import { useGame } from './game/state/store'
+import { initNet } from './net/client'
 
 const Experience = lazy(() => import('./components/Experience'))
 
@@ -25,20 +26,24 @@ export default function App() {
       .catch(() => undefined)
       .then(() => setFonts(true))
     void import('./components/Experience').then(() => setCode(true))
+    void initNet()
   }, [])
 
   const onFrame = useCallback(() => setFrame(true), [])
   const progress = (fonts ? 0.2 : 0) + (code ? 0.45 : 0) + (frame ? 0.35 : 0)
 
-  const enter = () => {
+  const unlock = () => {
     audio.unlock()
     const s = useGame.getState().settings
     audio.setVolume('music', s.music)
     audio.setVolume('sfx', s.sfx)
     audio.setVolume('ambient', s.ambient)
     audio.ui()
-    useGame.getState().enter()
     preloadBonusGames()
+  }
+  const enter = () => {
+    unlock()
+    useGame.getState().enter()
   }
 
   return (
@@ -59,7 +64,7 @@ export default function App() {
       <div className={`curtain ${curtain ? 'on' : ''}`}>
         <div className="curtain-mark">PROJECT CHAOS</div>
       </div>
-      {!ready && <Loading progress={progress} onEnter={enter} />}
+      {!ready && <Loading progress={progress} onEnter={enter} onGesture={unlock} />}
     </div>
   )
 }

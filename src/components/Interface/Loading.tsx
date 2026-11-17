@@ -1,9 +1,11 @@
 import { useState } from 'react'
 import { SESSION_SEED } from '../../game/engine/session'
 import { SEGMENTS, SEGMENT_ORDER, WHEEL_COUNTS, SEGMENT_COUNT } from '../../game/logic/segments'
+import { useNet } from '../../net/client'
 import { Settings } from './Hud'
+import { MultiplayerPanel } from './Multiplayer'
 
-type View = 'home' | 'how' | 'settings'
+type View = 'home' | 'mp' | 'how' | 'settings'
 
 const BONUS_RULES: Record<string, string> = {
   DON: 'Each face of a coin gets its own multiplier. The face that lands up pays.',
@@ -44,8 +46,11 @@ function HowToPlay() {
 }
 
 /** Title screen: loading progress, then the main menu over the live studio. */
-export function Loading({ progress, onEnter }: { progress: number; onEnter: () => void }) {
-  const [view, setView] = useState<View>('home')
+export function Loading({ progress, onEnter, onGesture }: { progress: number; onEnter: () => void; onGesture: () => void }) {
+  const inRoom = useNet((s) => s.room !== null)
+  const [picked, setView] = useState<View>('home')
+  // A player who is already seated at a table (e.g. after a reload) lands in the lobby.
+  const view: View = inRoom ? 'mp' : picked
   const done = progress >= 0.999
   return (
     <div className="menu">
@@ -66,7 +71,8 @@ export function Loading({ progress, onEnter }: { progress: number; onEnter: () =
           </>
         ) : (
           <nav className="menu-nav" aria-label="Main menu">
-            <button className="menu-item primary" onClick={onEnter}>Play</button>
+            <button className="menu-item primary" onClick={onEnter} disabled={inRoom}>Single player</button>
+            <button className={`menu-item ${view === 'mp' ? 'on' : ''}`} onClick={() => setView(view === 'mp' ? 'home' : 'mp')}>Multiplayer</button>
             <button className={`menu-item ${view === 'how' ? 'on' : ''}`} onClick={() => setView(view === 'how' ? 'home' : 'how')}>How to play</button>
             <button className={`menu-item ${view === 'settings' ? 'on' : ''}`} onClick={() => setView(view === 'settings' ? 'home' : 'settings')}>Settings</button>
           </nav>
@@ -74,9 +80,10 @@ export function Loading({ progress, onEnter }: { progress: number; onEnter: () =
         <p className="menu-note">
           Chaos Credits are fictional — no real money, deposits or withdrawals.
           <br />
-          Single player · session seed {SESSION_SEED}
+          Session seed {SESSION_SEED}
         </p>
       </div>
+      {done && view === 'mp' && <MultiplayerPanel onGesture={onGesture} />}
       {done && view === 'how' && <HowToPlay />}
       {done && view === 'settings' && (
         <div className="menu-panel narrow">

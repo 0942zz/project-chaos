@@ -1,13 +1,16 @@
 {
   "name": "project-chaos",
   "private": true,
-  "version": "1.1.0",
+  "version": "2.0.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
     "typecheck": "tsc --noEmit",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "server": "bun server/index.ts",
+    "start": "bun --bun x vite build && bun server/index.ts",
+    "check": "bun run scripts/check-logic.ts"
   },
   "dependencies": {
     "@dimforge/rapier2d-compat": "^0.21.0",

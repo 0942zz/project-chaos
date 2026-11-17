@@ -1,6 +1,7 @@
 import { audio } from '../../audio/engine'
 import { SEGMENTS, SEGMENT_ORDER, probabilityOf } from '../../game/logic/segments'
 import { CHIPS, totalOf, useGame } from '../../game/state/store'
+import { useNet } from '../../net/client'
 import { formatCredits } from '../../utils/math'
 
 const CHIP_COLORS: Record<number, string> = { 1: '#9aa3b8', 5: '#e0445c', 10: '#3b7bff', 25: '#1fbf83', 100: '#e8b64a' }
@@ -12,6 +13,9 @@ export function BetBoard() {
   const chip = useGame((s) => s.chip)
   const balance = useGame((s) => s.balance)
   const result = useGame((s) => s.result)
+  const mp = useGame((s) => s.mode === 'mp')
+  const isHost = useNet((s) => s.room !== null && s.user !== null && s.room.hostId === s.user.id)
+  const mine = useNet((s) => s.myBets)
   const g = useGame.getState()
   const open = phase === 'BETTING'
   const total = totalOf(bets)
@@ -69,18 +73,18 @@ export function BetBoard() {
         <div className="actions">
           <button className="btn-ghost" disabled={!open || total === 0} onClick={act(g.undoBet)}>Undo</button>
           <button className="btn-ghost" disabled={!open || total === 0} onClick={act(g.clearBets)}>Clear</button>
-          <button className="btn-ghost" disabled={!open || total > 0 || totalOf(lastBets) === 0 || totalOf(lastBets) > balance} onClick={act(g.rebet, 'chip')}>Repeat</button>
-          <button className="btn-ghost" disabled={!open || total === 0 || total > balance} onClick={act(g.doubleBets, 'chip')}>Double</button>
+          {!mp && <button className="btn-ghost" disabled={!open || total > 0 || totalOf(lastBets) === 0 || totalOf(lastBets) > balance} onClick={act(g.rebet, 'chip')}>Repeat</button>}
+          {!mp && <button className="btn-ghost" disabled={!open || total === 0 || total > balance} onClick={act(g.doubleBets, 'chip')}>Double</button>}
         </div>
         <div className="stake">
-          <small>Total stake</small>
+          <small>{mp ? `Team stake · yours ${formatCredits(mine ? totalOf(mine) : 0)}` : 'Total stake'}</small>
           <strong>{formatCredits(total)}</strong>
         </div>
         {broke ? (
           <button className="btn-primary" onClick={() => { audio.ui(); g.topUp() }}>Refill Chaos Credits</button>
         ) : (
-          <button className="btn-primary" disabled={!open} onClick={act(g.lockNow)}>
-            {open ? (total > 0 ? 'Spin now' : 'Spin without stake') : 'Selections closed'}
+          <button className="btn-primary" disabled={!open || (mp && !isHost)} onClick={act(g.lockNow)}>
+            {!open ? 'Selections closed' : mp && !isHost ? 'Host spins' : total > 0 ? 'Spin now' : 'Spin without stake'}
           </button>
         )}
       </div>

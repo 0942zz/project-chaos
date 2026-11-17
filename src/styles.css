@@ -452,3 +452,54 @@ input[type='range'] { accent-color: var(--gold); width: 100%; }
   .menu-panel, .menu-panel.narrow { max-width: none; border-left: 0; border-top: 1px solid var(--line); padding: 20px 0; background: none; flex: none; }
   .menu-nav { margin-bottom: 24px; }
 }
+
+/* ───────── multiplayer ───────── */
+.form { display: flex; flex-direction: column; gap: 14px; max-width: 340px; }
+.form label span { display: block; font-size: 10px; font-weight: 700; letter-spacing: 0.18em; text-transform: uppercase; color: var(--muted); margin-bottom: 6px; }
+.form input, .code-input {
+  width: 100%; padding: 12px 14px; font: inherit; color: var(--text);
+  background: rgba(255, 255, 255, 0.05); border: 1px solid rgba(255, 255, 255, 0.16); border-radius: 6px;
+  user-select: text;
+}
+.form input:focus, .code-input:focus { outline: none; border-color: var(--gold); }
+.seg.two { grid-template-columns: repeat(2, 1fr); }
+.form-row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.form-error { margin: 14px 0 0; padding: 10px 12px; font-size: 13px; color: #ffd9d9; background: rgba(160, 40, 40, 0.25); border-left: 2px solid #d05050; }
+.code-input { width: 120px; font-family: var(--display); font-weight: 700; font-size: 22px; letter-spacing: 0.3em; text-align: center; }
+.rooms { display: flex; flex-direction: column; align-items: flex-start; gap: 14px; margin-top: 22px; padding-top: 22px; border-top: 1px solid rgba(255, 255, 255, 0.08); }
+.avatar { border-radius: 50%; object-fit: cover; flex: none; border: 1px solid var(--line); }
+.avatar.blank { display: inline-grid; place-items: center; font-family: var(--display); font-weight: 700; color: var(--gold); background: #17150f; }
+.profile { display: flex; gap: 16px; align-items: center; }
+.profile strong { display: block; font-family: var(--display); font-size: 24px; letter-spacing: 0.06em; }
+.profile small { font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--muted); }
+.profile-actions { display: flex; gap: 8px; margin-top: 10px; }
+.stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin: 20px 0; }
+.stats dt { font-size: 10px; font-weight: 700; letter-spacing: 0.16em; text-transform: uppercase; color: var(--muted); }
+.stats dd { margin: 2px 0 0; font-family: var(--display); font-weight: 700; font-size: 22px; font-variant-numeric: tabular-nums; }
+.odds.compact td, .odds.compact th { padding-top: 5px; padding-bottom: 5px; font-size: 12px; }
+.room-code small { display: block; font-size: 10px; font-weight: 700; letter-spacing: 0.2em; text-transform: uppercase; color: var(--muted); }
+.room-code strong { font-family: var(--display); font-weight: 700; font-size: 64px; letter-spacing: 0.24em; color: var(--gold); line-height: 1.1; user-select: text; }
+.players { list-style: none; margin: 18px 0 10px; padding: 0; display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; }
+.players li { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border: 1px solid rgba(255, 255, 255, 0.1); font-size: 14px; }
+.players li.away, .roster-row.away { opacity: 0.45; }
+.players em, .roster-row em { margin-left: auto; font-style: normal; font-size: 10px; font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase; color: var(--gold); }
+.waiting { font-size: 13px; color: var(--muted); }
+.menu-note b { color: var(--text); font-weight: 700; user-select: text; }
+.menu-item:disabled { opacity: 0.3; pointer-events: none; }
+.roster {
+  position: absolute; right: var(--pad); top: 84px; width: 190px;
+  display: flex; flex-direction: column; gap: 6px; padding: 10px;
+  background: var(--glass); border: 1px solid rgba(255, 255, 255, 0.1);
+}
+.roster-head { display: flex; justify-content: space-between; align-items: center; font-size: 10px; font-weight: 700; letter-spacing: 0.16em; text-transform: uppercase; color: var(--muted); }
+.roster-head i { font-style: normal; }
+.roster-head i.ok { color: #7fd6a3; }
+.roster-head i.bad { color: #e0a060; }
+.roster-row { display: flex; align-items: center; gap: 8px; font-size: 13px; }
+.roster-row span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+@media (max-width: 860px) {
+  .roster { top: 150px; width: auto; flex-direction: row; flex-wrap: wrap; align-items: center; left: var(--pad); padding: 6px 8px; }
+  .roster-head { width: 100%; }
+  .roster-row span, .roster-row em { display: none; }
+  .players, .stats { grid-template-columns: repeat(2, 1fr); }
+}

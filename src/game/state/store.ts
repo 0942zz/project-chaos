@@ -56,6 +56,9 @@ export interface GameStore {
   /** Physics plan of the grand wheel in the CHAOS bonus. */
   bonusSpin: SpinPlan | null
   bonusSpinStartedAt: number
+  /** 'mp' = a LAN table: the server owns the state and this store only mirrors it. */
+  mode: 'sp' | 'mp'
+  send: ((action: Record<string, unknown>) => void) | null
 
   go: (to: Phase) => boolean
   enter: () => void
@@ -129,8 +132,11 @@ export const useGame = create<GameStore>()((set, get) => {
     tier: 'high',
     bonusSpin: null,
     bonusSpinStartedAt: 0,
+    mode: 'sp',
+    send: null,
 
     go: (to) => {
+      if (get().mode === 'mp') return false
       const from = get().phase
       if (!canTransition(from, to)) {
         console.warn(`[chaos] rejected transition ${from} → ${to}`)
@@ -148,6 +154,7 @@ export const useGame = create<GameStore>()((set, get) => {
 
     placeBet: (spot) => {
       const s = get()
+      if (s.mode === 'mp') return void s.send?.({ a: 'bet', spot, amount: s.chip })
       if (s.phase !== 'BETTING') return
       const amount = Math.min(s.chip, s.balance)
       if (amount <= 0) return
@@ -160,6 +167,7 @@ export const useGame = create<GameStore>()((set, get) => {
 
     undoBet: () => {
       const s = get()
+      if (s.mode === 'mp') return void s.send?.({ a: 'undo' })
       if (s.phase !== 'BETTING' || s.betLog.length === 0) return
       const last = s.betLog[s.betLog.length - 1]
       set({
@@ -171,12 +179,14 @@ export const useGame = create<GameStore>()((set, get) => {
 
     clearBets: () => {
       const s = get()
+      if (s.mode === 'mp') return void s.send?.({ a: 'clear' })
       if (s.phase !== 'BETTING') return
       set({ balance: s.balance + totalOf(s.bets), bets: emptyBets(), betLog: [] })
     },
 
     rebet: () => {
       const s = get()
+      if (s.mode === 'mp') return
       if (s.phase !== 'BETTING' || totalOf(s.bets) > 0) return
       const need = totalOf(s.lastBets)
       if (need === 0 || need > s.balance) return
@@ -189,6 +199,7 @@ export const useGame = create<GameStore>()((set, get) => {
 
     doubleBets: () => {
       const s = get()
+      if (s.mode === 'mp') return
       const need = totalOf(s.bets)
       if (s.phase !== 'BETTING' || need === 0 || need > s.balance) return
       const bets = { ...s.bets }
@@ -206,11 +217,14 @@ export const useGame = create<GameStore>()((set, get) => {
     setBettingEndsAt: (t) => set({ bettingEndsAt: t }),
 
     lockNow: () => {
-      if (get().phase === 'BETTING') get().go('LOCKED')
+      const s = get()
+      if (s.mode === 'mp') s.send?.({ a: 'lock' })
+      else if (s.phase === 'BETTING') s.go('LOCKED')
     },
 
     startSpin: () => {
       const s = get()
+      if (s.mode === 'mp') return
       // A spin can only ever begin from LOCKED, so two spins cannot overlap.
       if (s.phase !== 'LOCKED') return
       const start = s.wheelAngle % (Math.PI * 2)
@@ -221,6 +235,7 @@ export const useGame = create<GameStore>()((set, get) => {
 
     resolveSpin: () => {
       const s = get()
+      if (s.mode === 'mp') return
       if (s.phase !== 'DECELERATING' || !s.spin) return
       const index = s.spin.finalIndex
       const type = WHEEL[index]
@@ -242,6 +257,7 @@ export const useGame = create<GameStore>()((set, get) => {
 
     startBonus: () => {
       const s = get()
+      if (s.mode === 'mp') return
       if (s.phase !== 'BONUS_INTRO' || !s.result || !isBonus(s.result.type)) return
       const type = s.result.type
       const bonus: BonusState =
@@ -268,6 +284,7 @@ export const useGame = create<GameStore>()((set, get) => {
 
     finishBonus: (multiplier) => {
       const s = get()
+      if (s.mode === 'mp') return
       if (s.phase !== 'BONUS_ACTIVE' || !s.result) return
       const stake = s.bets[s.result.type]
       const lastWin = stake > 0 ? stake * (multiplier + 1) : 0
@@ -277,6 +294,7 @@ export const useGame = create<GameStore>()((set, get) => {
 
     nextRound: () => {
       const s = get()
+      if (s.mode === 'mp') return
       if (s.phase !== 'ROUND_COMPLETE') return
       const had = totalOf(s.bets) > 0
       set({
@@ -292,6 +310,7 @@ export const useGame = create<GameStore>()((set, get) => {
 
     topUp: () => {
       const s = get()
+      if (s.mode === 'mp') return void s.send?.({ a: 'topup' })
       if (s.balance + totalOf(s.bets) < 1) set({ balance: START_BALANCE })
     },
 
@@ -308,11 +327,13 @@ export const useGame = create<GameStore>()((set, get) => {
     /* ── DOUBLE ── */
     donFlip: () => {
       const s = get()
+      if (s.mode === 'mp') return void s.send?.({ a: 'donFlip' })
       if (s.phase !== 'BONUS_ACTIVE' || s.bonus?.kind !== 'DON') return
       set({ bonus: donFlip(s.bonus, rng) })
     },
     donLand: () => {
       const s = get()
+      if (s.mode === 'mp') return
       if (s.phase !== 'BONUS_ACTIVE' || s.bonus?.kind !== 'DON') return
       const next = donLand(s.bonus)
       if (next === s.bonus) return
@@ -323,6 +344,7 @@ export const useGame = create<GameStore>()((set, get) => {
     /* ── TREASURE ── */
     tsPick: (i) => {
       const s = get()
+      if (s.mode === 'mp') return void s.send?.({ a: 'tsPick', index: i })
       if (s.phase !== 'BONUS_ACTIVE' || s.bonus?.kind !== 'TS') return
       const next = tsPick(s.bonus, i)
       if (next === s.bonus) return
@@ -338,11 +360,13 @@ export const useGame = create<GameStore>()((set, get) => {
     },
     gdDrop: () => {
       const s = get()
+      if (s.mode === 'mp') return void s.send?.({ a: 'gdDrop', aim: s.bonus?.kind === 'GD' ? s.bonus.aim : 0.5 })
       if (s.phase !== 'BONUS_ACTIVE' || s.bonus?.kind !== 'GD') return
       set({ bonus: gdDrop(s.bonus, rng) })
     },
     gdLand: (slot) => {
       const s = get()
+      if (s.mode === 'mp') return
       if (s.phase !== 'BONUS_ACTIVE' || s.bonus?.kind !== 'GD') return
       const next = gdLand(s.bonus, slot)
       if (next === s.bonus) return
@@ -358,6 +382,7 @@ export const useGame = create<GameStore>()((set, get) => {
     /* ── CHAOS ── */
     cmPick: (i) => {
       const s = get()
+      if (s.mode === 'mp') return void s.send?.({ a: 'cmPick', index: i })
       if (s.phase !== 'BONUS_ACTIVE' || s.bonus?.kind !== 'CM') return
       const next = cmPick(s.bonus, i)
       if (next === s.bonus) return
@@ -366,6 +391,7 @@ export const useGame = create<GameStore>()((set, get) => {
     },
     cmSpin: () => {
       const s = get()
+      if (s.mode === 'mp') return
       if (s.phase !== 'BONUS_ACTIVE' || s.bonus?.kind !== 'CM') return
       const next = cmBeginSpin(s.bonus)
       if (next === s.bonus) return
@@ -373,6 +399,7 @@ export const useGame = create<GameStore>()((set, get) => {
     },
     cmLand: () => {
       const s = get()
+      if (s.mode === 'mp') return
       if (s.phase !== 'BONUS_ACTIVE' || s.bonus?.kind !== 'CM' || !s.bonusSpin) return
       const next = cmLand(s.bonus, s.bonusSpin.finalAngle)
       if (next === s.bonus) return

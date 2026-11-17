@@ -6,6 +6,7 @@ import { SEGMENTS, SEGMENT_ORDER, isBonus } from '../../game/logic/segments'
 import { PHASE_LABEL } from '../../game/state/machine'
 import { useGame, type Quality } from '../../game/state/store'
 import { formatCredits, formatMult } from '../../utils/math'
+import { PlayersStrip } from './Multiplayer'
 
 /** Re-renders on an interval while `active`; used for the countdown. */
 function useTicker(active: boolean, ms = 100): void {
@@ -181,7 +182,7 @@ export function Hud() {
         <Status />
         <div className="top-right">
           <div className="balance">
-            <small>Chaos Credits</small>
+            <small>{useGame.getState().mode === 'mp' ? 'Team wallet' : 'Chaos Credits'}</small>
             <strong>{formatCredits(shown)}</strong>
           </div>
           <button className="icon-btn" aria-label="Sound and graphics settings" onPointerDown={(e) => e.stopPropagation()} onClick={() => { audio.ui(); setOpen((o) => !o) }}>
@@ -208,6 +209,7 @@ export function Hud() {
       </aside>
 
       <ResultBanner />
+      <PlayersStrip />
       {DEV_MODE && <DevPanel />}
     </>
   )
