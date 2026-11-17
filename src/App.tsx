@@ -30,6 +30,12 @@ export default function App() {
   }, [])
 
   const onFrame = useCallback(() => setFrame(true), [])
+  useEffect(() => {
+    // Browsers pause rendering in background tabs; never let that hold the menu back forever.
+    if (!code) return
+    const id = window.setTimeout(() => setFrame(true), 6000)
+    return () => window.clearTimeout(id)
+  }, [code])
   const progress = (fonts ? 0.2 : 0) + (code ? 0.45 : 0) + (frame ? 0.35 : 0)
 
   const unlock = () => {

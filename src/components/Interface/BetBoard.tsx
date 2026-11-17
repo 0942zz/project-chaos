@@ -15,7 +15,6 @@ export function BetBoard() {
   const result = useGame((s) => s.result)
   const mp = useGame((s) => s.mode === 'mp')
   const isHost = useNet((s) => s.room !== null && s.user !== null && s.room.hostId === s.user.id)
-  const mine = useNet((s) => s.myBets)
   const g = useGame.getState()
   const open = phase === 'BETTING'
   const total = totalOf(bets)
@@ -50,6 +49,9 @@ export function BetBoard() {
                 {info.bonus ? 'Bonus' : `${info.payout}:1`} · {(probabilityOf(t) * 100).toFixed(1)}%
               </span>
               {stake > 0 && <span className="spot-stake">{formatCredits(stake)}</span>}
+              {stake > 0 && (
+                <span className="spot-return">{info.bonus ? `${formatCredits(stake)} × bonus` : `returns ${formatCredits(stake * (info.payout + 1))}`}</span>
+              )}
             </button>
           )
         })}
@@ -77,7 +79,7 @@ export function BetBoard() {
           {!mp && <button className="btn-ghost" disabled={!open || total === 0 || total > balance} onClick={act(g.doubleBets, 'chip')}>Double</button>}
         </div>
         <div className="stake">
-          <small>{mp ? `Team stake · yours ${formatCredits(mine ? totalOf(mine) : 0)}` : 'Total stake'}</small>
+          <small>Your stake</small>
           <strong>{formatCredits(total)}</strong>
         </div>
         {broke ? (

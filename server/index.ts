@@ -7,7 +7,7 @@ import { existsSync, mkdirSync } from 'node:fs'
 import { networkInterfaces } from 'node:os'
 import { join, normalize } from 'node:path'
 import type { ServerWebSocket } from 'bun'
-import { MAX_PLAYERS, Room, type RoundRecord } from './room'
+import { MAX_PLAYERS, Room, START_BALANCE, type RoundRecord, type Wallet } from './room'
 
 const PORT = Number(process.env.PORT ?? 3000)
 const ROOT = join(import.meta.dir, '..')
@@ -33,14 +33,56 @@ db.run(`CREATE TABLE IF NOT EXISTS history (
   result TEXT NOT NULL, multiplier REAL NOT NULL, stake INTEGER NOT NULL, win INTEGER NOT NULL, at INTEGER NOT NULL
 )`)
 db.run('CREATE INDEX IF NOT EXISTS history_user ON history (user_id, id DESC)')
+// Migration: databases created before individual wallets get the balance column here.
+if (!(db.query('PRAGMA table_info(users)').all() as { name: string }[]).some((c) => c.name === 'balance')) {
+  db.run(`ALTER TABLE users ADD COLUMN balance INTEGER NOT NULL DEFAULT ${START_BALANCE}`)
+}
 
-interface UserRow { id: number; username: string; password_hash: string; avatar: string | null }
+const wallet: Wallet = {
+  get: (id) => (db.query('SELECT balance FROM users WHERE id = ?').get(id) as { balance: number } | null)?.balance ?? 0,
+  add: (id, delta) => {
+    // One atomic statement; the wallet can never go below zero.
+    db.run('UPDATE users SET balance = MAX(0, balance + ?) WHERE id = ?', [Math.trunc(delta), id])
+    return wallet.get(id)
+  },
+  set: (id, value) => void db.run('UPDATE users SET balance = ? WHERE id = ?', [Math.max(0, Math.trunc(value)), id]),
+}
+
+interface UserRow { id: number; username: string; password_hash: string; avatar: string | null; balance: number }
+
+/** Everything is derived from the server's own history rows — one row per round a player staked in. */
+const STATS_SQL = `SELECT COUNT(*) AS games,
+  COALESCE(SUM(win > 0), 0) AS victories,
+  COALESCE(SUM(win = 0), 0) AS losses,
+  COALESCE(SUM(stake), 0) AS wagered,
+  COALESCE(SUM(win - stake), 0) AS net,
+  COALESCE(MAX(win), 0) AS biggestWin
+  FROM history WHERE user_id = ?`
+interface Stats { games: number; victories: number; losses: number; wagered: number; net: number; biggestWin: number; winPct: number }
 
 const publicUser = (u: UserRow) => {
-  const stats = db
-    .query('SELECT COUNT(*) AS rounds, COALESCE(SUM(stake),0) AS staked, COALESCE(SUM(win),0) AS won, COALESCE(MAX(CASE WHEN win > 0 THEN multiplier END),0) AS best FROM history WHERE user_id = ?')
-    .get(u.id) as { rounds: number; staked: number; won: number; best: number }
-  return { id: u.id, name: u.username, hasAvatar: u.avatar !== null, stats }
+  const s = db.query(STATS_SQL).get(u.id) as Omit<Stats, 'winPct'>
+  const stats: Stats = { ...s, winPct: s.games ? Math.round((s.victories / s.games) * 1000) / 10 : 0 }
+  return { id: u.id, name: u.username, hasAvatar: u.avatar !== null, balance: wallet.get(u.id), stats }
+}
+
+/** Win percentage needs a few rounds before it means anything. */
+const MIN_GAMES_FOR_PCT = 5
+function leaderboard() {
+  const rows = db.query(`SELECT u.id, u.username AS name, u.avatar IS NOT NULL AS hasAvatar, u.balance,
+      COUNT(h.id) AS games, COALESCE(SUM(h.win > 0), 0) AS victories, COALESCE(SUM(h.win - h.stake), 0) AS net
+    FROM users u LEFT JOIN history h ON h.user_id = u.id GROUP BY u.id`).all() as
+    { id: number; name: string; hasAvatar: number; balance: number; games: number; victories: number; net: number }[]
+  const top = (value: (r: (typeof rows)[number]) => number, keep: (r: (typeof rows)[number]) => boolean = () => true) =>
+    rows.filter(keep).map((r) => ({ id: r.id, name: r.name, hasAvatar: !!r.hasAvatar, games: r.games, value: value(r) }))
+      .sort((a, b) => b.value - a.value || a.name.localeCompare(b.name)).slice(0, 10)
+  return {
+    minGamesForPct: MIN_GAMES_FOR_PCT,
+    balance: top((r) => r.balance),
+    net: top((r) => r.net, (r) => r.games > 0),
+    victories: top((r) => r.victories, (r) => r.games > 0),
+    winPct: top((r) => Math.round((r.victories / r.games) * 1000) / 10, (r) => r.games >= MIN_GAMES_FOR_PCT),
+  }
 }
 
 function userFromToken(token: string | null): UserRow | null {
@@ -126,7 +168,7 @@ function onMessage(ws: Socket, raw: string): void {
 
   if (msg.t === 'create') {
     leaveRoom(ws, true)
-    const room = new Room(newCode(), me, broadcast, saveRounds)
+    const room = new Room(newCode(), me, broadcast, saveRounds, wallet)
     rooms.set(room.code, room)
     ws.data.room = room.code
     broadcast(room)
@@ -196,6 +238,7 @@ async function api(req: Request, path: string): Promise<Response> {
     const history = db.query('SELECT room, round, result, multiplier, stake, win, at FROM history WHERE user_id = ? ORDER BY id DESC LIMIT 12').all(user.id)
     return json({ user: publicUser(user), history })
   }
+  if (path === '/api/leaderboard') return json(leaderboard())
   if (path === '/api/logout' && req.method === 'POST') {
     db.run('DELETE FROM sessions WHERE token = ?', [bearer(req)])
     return json({ ok: true })

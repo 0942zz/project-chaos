@@ -1,8 +1,9 @@
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { SEGMENTS } from '../../game/logic/segments'
 import { useGame } from '../../game/state/store'
 import {
-  authenticate, avatarUrl, createRoom, joinRoom, leaveRoom, logout, startGame, uploadAvatar, useNet,
+  authenticate, avatarUrl, createRoom, joinRoom, leaveRoom, loadLeaderboard, logout, refreshProfile, startGame, uploadAvatar, useNet,
+  type BoardRow,
 } from '../../net/client'
 import { formatCredits, formatMult } from '../../utils/math'
 
@@ -55,6 +56,8 @@ function Profile() {
   const user = useNet((s) => s.user)!
   const history = useNet((s) => s.history)
   const file = useRef<HTMLInputElement>(null)
+  // Wallet and statistics live on the server; fetch the current values whenever the profile is shown.
+  useEffect(() => { void refreshProfile().catch(() => undefined) }, [])
   return (
     <>
       <div className="profile">
@@ -73,10 +76,14 @@ function Profile() {
         </div>
       </div>
       <dl className="stats">
-        <div><dt>Rounds</dt><dd>{user.stats.rounds}</dd></div>
-        <div><dt>Staked</dt><dd>{formatCredits(user.stats.staked)}</dd></div>
-        <div><dt>Returned</dt><dd>{formatCredits(user.stats.won)}</dd></div>
-        <div><dt>Best hit</dt><dd>{user.stats.best ? formatMult(user.stats.best) : '—'}</dd></div>
+        <div><dt>Balance</dt><dd className="gold">{formatCredits(user.balance)}</dd></div>
+        <div><dt>Games</dt><dd>{user.stats.games}</dd></div>
+        <div><dt>Won</dt><dd>{user.stats.victories}</dd></div>
+        <div><dt>Lost</dt><dd>{user.stats.losses}</dd></div>
+        <div><dt>Wagered</dt><dd>{formatCredits(user.stats.wagered)}</dd></div>
+        <div><dt>Net</dt><dd className={user.stats.net < 0 ? 'neg' : ''}>{user.stats.net > 0 ? '+' : ''}{formatCredits(user.stats.net)}</dd></div>
+        <div><dt>Biggest win</dt><dd>{formatCredits(user.stats.biggestWin)}</dd></div>
+        <div><dt>Win rate</dt><dd>{user.stats.games ? `${user.stats.winPct}%` : '—'}</dd></div>
       </dl>
       {history.length > 0 && (
         <table className="odds compact">
@@ -122,7 +129,7 @@ function Lobby({ onGesture }: { onGesture: () => void }) {
           </li>
         ))}
       </ul>
-      <p className="menu-note">{room.players.length} of {info?.maxPlayers ?? 8} players · one shared wallet of 1,000 Chaos Credits</p>
+      <p className="menu-note">{room.players.length} of {info?.maxPlayers ?? 8} players · everyone plays with their own wallet and private bets</p>
       <div className="form-row">
         {isHost ? (
           <button className="btn-primary" onClick={() => { onGesture(); startGame() }}>Start the show</button>
@@ -154,15 +161,60 @@ function Rooms({ onGesture }: { onGesture: () => void }) {
   )
 }
 
+function Board({ title, rows, format, note }: { title: string; rows: BoardRow[]; format: (v: number) => string; note?: string }) {
+  const me = useNet((s) => s.user?.id)
+  return (
+    <section className="board-list">
+      <h3>{title}</h3>
+      {rows.length === 0 ? (
+        <p className="menu-note">{note ?? 'No rounds played yet.'}</p>
+      ) : (
+        <ol>
+          {rows.map((r, i) => (
+            <li key={r.id} className={r.id === me ? 'me' : ''}>
+              <b>{i + 1}</b>
+              <Avatar id={r.id} name={r.name} has={r.hasAvatar} size={22} />
+              <span>{r.name}</span>
+              <em>{format(r.value)}</em>
+            </li>
+          ))}
+        </ol>
+      )}
+    </section>
+  )
+}
+
+function Leaderboards() {
+  const lb = useNet((s) => s.leaderboard)
+  useEffect(() => { void loadLeaderboard() }, [])
+  if (!lb) return <p className="menu-note">Loading the leaderboard…</p>
+  const signed = (v: number) => `${v > 0 ? '+' : ''}${formatCredits(v)}`
+  return (
+    <div className="boards">
+      <Board title="Highest balance" rows={lb.balance} format={formatCredits} />
+      <Board title="Highest net winnings" rows={lb.net} format={signed} />
+      <Board title="Most victories" rows={lb.victories} format={String} />
+      <Board title="Best win rate" rows={lb.winPct} format={(v) => `${v}%`} note={`Needs at least ${lb.minGamesForPct} rounds played.`} />
+    </div>
+  )
+}
+
 /** The multiplayer section of the main menu: account, profile, rooms and lobby. */
 export function MultiplayerPanel({ onGesture }: { onGesture: () => void }) {
   const serverOk = useNet((s) => s.serverOk)
   const user = useNet((s) => s.user)
   const room = useNet((s) => s.room)
   const error = useNet((s) => s.error)
+  const [tab, setTab] = useState<'play' | 'ranks'>('play')
   return (
     <div className="menu-panel">
       <h2>{room ? 'Lobby' : 'Multiplayer · LAN'}</h2>
+      {serverOk && user && !room && (
+        <div className="seg two tabs">
+          <button className={tab === 'play' ? 'on' : ''} onClick={() => setTab('play')}>Profile & rooms</button>
+          <button className={tab === 'ranks' ? 'on' : ''} onClick={() => setTab('ranks')}>Leaderboard</button>
+        </div>
+      )}
       {serverOk === null && <p className="menu-note">Looking for the game server…</p>}
       {serverOk === false && (
         <p className="menu-note">
@@ -171,12 +223,13 @@ export function MultiplayerPanel({ onGesture }: { onGesture: () => void }) {
         </p>
       )}
       {serverOk && !user && <AuthForm />}
-      {serverOk && user && !room && (
+      {serverOk && user && !room && tab === 'play' && (
         <>
           <Profile />
           <Rooms onGesture={onGesture} />
         </>
       )}
+      {serverOk && user && !room && tab === 'ranks' && <Leaderboards />}
       {serverOk && user && room && <Lobby onGesture={onGesture} />}
       {error && <p className="form-error" role="alert">{error}</p>}
     </div>

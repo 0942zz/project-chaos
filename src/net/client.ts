@@ -9,8 +9,11 @@ export interface NetUser {
   id: number
   name: string
   hasAvatar: boolean
-  stats: { rounds: number; staked: number; won: number; best: number }
+  balance: number
+  stats: { games: number; victories: number; losses: number; wagered: number; net: number; biggestWin: number; winPct: number }
 }
+export interface BoardRow { id: number; name: string; hasAvatar: boolean; games: number; value: number }
+export interface Leaderboard { minGamesForPct: number; balance: BoardRow[]; net: BoardRow[]; victories: BoardRow[]; winPct: BoardRow[] }
 export interface HistoryRow { room: string; round: number; result: SegmentType; multiplier: number; stake: number; win: number; at: number }
 export interface RoomInfo {
   code: string
@@ -21,7 +24,7 @@ export interface RoomInfo {
 interface PlanMsg { startAngle: number; omega0: number; elapsed: number }
 interface StateMsg {
   t: 'state'; now: number; room: RoomInfo; phase: Phase; phaseAge: number; round: number; balance: number
-  bets: Bets; myBets: Bets; bettingLeft: number; wheelAngle: number; spin: PlanMsg | null
+  bets: Bets; bettingLeft: number; wheelAngle: number; spin: PlanMsg | null
   result: { index: number; type: SegmentType } | null; history: SegmentType[]; bonus: BonusState | null
   bonusSpin: PlanMsg | null; bonusMultiplier: number | null; lastWin: number
 }
@@ -35,7 +38,7 @@ interface NetStore {
   history: HistoryRow[]
   link: 'offline' | 'connecting' | 'online'
   room: RoomInfo | null
-  myBets: Bets | null
+  leaderboard: Leaderboard | null
   error: string | null
   avatarVersion: number
 }
@@ -51,7 +54,7 @@ const write = (k: string, v: string | null, store: Storage): void => {
 
 export const useNet = create<NetStore>()(() => ({
   serverOk: null, info: null, token: read(TOKEN_KEY, localStorage), user: null, history: [],
-  link: 'offline', room: null, myBets: null, error: null, avatarVersion: 0,
+  link: 'offline', room: null, leaderboard: null, error: null, avatarVersion: 0,
 }))
 const set = useNet.setState
 const get = useNet.getState
@@ -100,6 +103,14 @@ export async function initNet(): Promise<void> {
 export async function refreshProfile(): Promise<void> {
   const me = await call<{ user: NetUser; history: HistoryRow[] }>('/api/me')
   set({ user: me.user, history: me.history })
+}
+
+export async function loadLeaderboard(): Promise<void> {
+  try {
+    set({ leaderboard: await call<Leaderboard>('/api/leaderboard') })
+  } catch (e) {
+    fail(e)
+  }
 }
 
 export async function authenticate(mode: 'login' | 'register', username: string, password: string): Promise<void> {
@@ -218,7 +229,7 @@ const mainPlans = { key: '', plan: null as SpinPlan | null }
 function applyState(m: StateMsg): void {
   wantRoom = m.room.code
   write(ROOM_KEY, m.room.code, sessionStorage)
-  set({ room: m.room, myBets: m.myBets, error: null })
+  set({ room: m.room, error: null })
   if (!m.room.started) return
 
   const now = performance.now()

@@ -4,18 +4,45 @@ A browser-based 3D game show: a physics-driven prize wheel, two hosts, and four 
 
 Chaos Credits are fictional — no real money, deposits or withdrawals.
 
-## Run it
+## Install on a Windows PC
 
-Requires [Bun](https://bun.sh) (or Node.js 20+ with npm).
+1. Install [Bun](https://bun.sh) (once). In PowerShell:
+
+   ```powershell
+   powershell -c "irm bun.sh/install.ps1 | iex"
+   ```
+
+   Close and reopen the terminal afterwards.
+
+2. Get the project and install its packages:
+
+   ```bash
+   git clone -b v2 https://github.com/0942zz/project-chaos.git
+   cd project-chaos
+   bun install
+   ```
+
+   No Git on the PC? On GitHub choose the `v2` branch, then Code → Download ZIP, unzip it and run `bun install` inside the folder.
+
+3. Start it:
+
+   ```bash
+   bun run start
+   ```
+
+   This builds the game and starts the server. Open http://localhost:3000 on the same PC.
+
+Everything the game needs (models, textures, fonts, sounds) is in the repository or generated in code; nothing else has to be downloaded. The account database is created automatically in `data/` on first start and is not part of the repository, so accounts and balances do not travel between PCs.
+
+## Development mode
 
 ```bash
-bun install
 bun --bun run dev
 ```
 
-Then open http://localhost:5173.
+Then open http://localhost:5173. Single player works on its own; for multiplayer also run `bun run server` in a second terminal.
 
-With npm instead: `npm install` then `npm run dev`.
+Single player can also run without Bun (`npm install`, `npm run dev`), but the multiplayer server needs Bun.
 
 ## Build
 
@@ -65,7 +92,7 @@ Sound menu → Graphics: Auto, Ultra, High, Performance.
 
 ## LAN multiplayer
 
-Up to 8 players share one wallet of 1,000 Chaos Credits. The host PC runs the server (Bun required) and must stay on:
+Up to 8 players per room see the same wheel and bonus games. Every account has its own wallet (1,000 Chaos Credits to start), private bets, history and statistics; the same account on two devices stays in sync. The host PC runs the server (Bun required) and must stay on:
 
 ```bash
 bun run start

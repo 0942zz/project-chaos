@@ -182,7 +182,7 @@ export function Hud() {
         <Status />
         <div className="top-right">
           <div className="balance">
-            <small>{useGame.getState().mode === 'mp' ? 'Team wallet' : 'Chaos Credits'}</small>
+            <small>Chaos Credits</small>
             <strong>{formatCredits(shown)}</strong>
           </div>
           <button className="icon-btn" aria-label="Sound and graphics settings" onPointerDown={(e) => e.stopPropagation()} onClick={() => { audio.ui(); setOpen((o) => !o) }}>

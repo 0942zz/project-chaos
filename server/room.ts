@@ -12,6 +12,13 @@ import { TIMING, type Phase } from '../src/game/state/machine'
 
 export const MAX_PLAYERS = 8
 export const START_BALANCE = 1000
+
+/** Per-account wallet, backed by the database. The room never holds anyone's credits itself. */
+export interface Wallet {
+  get(userId: number): number
+  add(userId: number, delta: number): number
+  set(userId: number, value: number): void
+}
 const CHIPS = [1, 5, 10, 25, 100]
 const TAU = Math.PI * 2
 /** CHAOS_FAST=1 shortens the waiting phases (used by the automated test). Animations keep their real length. */
@@ -28,6 +35,8 @@ export interface Member {
   connected: boolean
   bets: Bets
   log: { spot: SegmentType; amount: number }[]
+  /** Credits returned to this player in the current round (their own stake included). */
+  lastWin: number
 }
 
 export interface RoundRecord {
@@ -41,9 +50,9 @@ export interface RoundRecord {
 }
 
 /**
- * One multiplayer table. The server owns every decision: bets are validated
- * against the shared wallet here, outcomes are drawn here, and clients only
- * receive state to display.
+ * One multiplayer table. The room synchronises the show (countdown, wheel,
+ * bonus games); each account keeps its own wallet, bets and winnings. The
+ * server owns every decision and clients only receive what they may see.
  */
 export class Room {
   members = new Map<number, Member>()
@@ -52,7 +61,6 @@ export class Room {
   phase: Phase = 'IDLE'
   phaseAt = performance.now()
   round = 1
-  balance = START_BALANCE
   history: SegmentType[] = []
   wheelAngle = 0.5 * (TAU / WHEEL.length)
   bettingEndsAt = 0
@@ -63,7 +71,6 @@ export class Room {
   bonusSpin: SpinPlan | null = null
   bonusSpinAt = 0
   bonusMultiplier: number | null = null
-  lastWin = 0
   private timers = new Set<ReturnType<typeof setTimeout>>()
   private rng: Rng = createRng(crypto.getRandomValues(new Uint32Array(1))[0])
 
@@ -72,6 +79,7 @@ export class Room {
     host: { id: number; name: string; hasAvatar: boolean },
     private onChange: (room: Room) => void,
     private record: (rows: RoundRecord[]) => void,
+    private wallet: Wallet,
   ) {
     this.hostId = host.id
     this.join(host)
@@ -88,7 +96,7 @@ export class Room {
       return null
     }
     if (this.members.size >= MAX_PLAYERS) return `This room is full (${MAX_PLAYERS} players).`
-    this.members.set(user.id, { ...user, connected: true, bets: emptyBets(), log: [] })
+    this.members.set(user.id, { ...user, connected: true, bets: emptyBets(), log: [], lastWin: 0 })
     this.onChange(this)
     return null
   }
@@ -99,8 +107,9 @@ export class Room {
     if (!m) return
     m.connected = false
     if (gone) {
-      // Stakes already placed stay in play for the team.
+      // Leaving during betting returns the stake; once the wheel is locked the bet stands and is settled now.
       if (this.phase === 'BETTING' || !this.started) this.refund(m)
+      else this.forfeit(m)
       this.members.delete(userId)
     }
     if (this.hostId === userId || !this.members.get(this.hostId)?.connected) {
@@ -153,13 +162,13 @@ export class Room {
     for (const m of this.members.values()) {
       m.bets = emptyBets()
       m.log = []
+      m.lastWin = 0
     }
     this.result = null
     this.bonus = null
     this.spin = null
     this.bonusSpin = null
     this.bonusMultiplier = null
-    this.lastWin = 0
     const seconds = TIMING.betting * K
     this.bettingEndsAt = performance.now() + seconds * 1000
     this.after(seconds, () => this.lock())
@@ -187,12 +196,6 @@ export class Room {
     this.onChange(this)
   }
 
-  private teamBets(): Bets {
-    const total = emptyBets()
-    for (const m of this.members.values()) for (const t of SEGMENT_ORDER) total[t] += m.bets[t]
-    return total
-  }
-
   private resolve(): void {
     if (this.phase !== 'DECELERATING' || !this.spin) return
     const index = this.spin.finalIndex
@@ -200,7 +203,6 @@ export class Room {
     this.result = { index, type }
     this.wheelAngle = this.spin.finalAngle % TAU
     this.history = [type, ...this.history].slice(0, 14)
-    this.lastWin = 0
     if (!isBonus(type)) this.pay(type, SEGMENTS[type].payout)
     this.setPhase('RESULT')
     this.after(TIMING.result * K, () => {
@@ -213,19 +215,33 @@ export class Room {
     this.onChange(this)
   }
 
-  /** Credits the shared wallet exactly once per round and writes each player's history row. */
+  /**
+   * Settles the round once: each player is paid only for their own stake on the
+   * winning pocket, into their own wallet, and gets their own history row.
+   */
   private pay(type: SegmentType, multiplier: number): void {
     const rows: RoundRecord[] = []
-    let win = 0
     for (const m of this.members.values()) {
       const stake = SEGMENT_ORDER.reduce((n, t) => n + m.bets[t], 0)
-      const own = m.bets[type] > 0 ? m.bets[type] * (multiplier + 1) : 0
-      win += own
-      if (stake > 0) rows.push({ userId: m.id, room: this.code, round: this.round, result: type, multiplier, stake, win: own })
+      if (stake === 0) continue
+      const win = m.bets[type] > 0 ? m.bets[type] * (multiplier + 1) : 0
+      if (win > 0) this.wallet.add(m.id, win)
+      m.lastWin = win
+      rows.push({ userId: m.id, room: this.code, round: this.round, result: type, multiplier, stake, win })
+      // The stake is now settled; clearing it means it can never be paid twice.
+      m.bets = emptyBets()
+      m.log = []
     }
-    this.balance += win
-    this.lastWin = win
     if (rows.length) this.record(rows)
+  }
+
+  /** A player who leaves after the lock loses the stake they had in play; it is recorded as a lost round. */
+  private forfeit(m: Member): void {
+    const stake = SEGMENT_ORDER.reduce((n, t) => n + m.bets[t], 0)
+    if (stake === 0) return
+    this.record([{ userId: m.id, room: this.code, round: this.round, result: this.result?.type ?? '1', multiplier: 0, stake, win: 0 }])
+    m.bets = emptyBets()
+    m.log = []
   }
 
   private completeRound(fromBonus: boolean): void {
@@ -377,7 +393,8 @@ export class Room {
   /* ───────── player actions (all validated here) ───────── */
 
   private refund(m: Member): void {
-    this.balance += SEGMENT_ORDER.reduce((n, t) => n + m.bets[t], 0)
+    const staked = SEGMENT_ORDER.reduce((n, t) => n + m.bets[t], 0)
+    if (staked > 0) this.wallet.add(m.id, staked)
     m.bets = emptyBets()
     m.log = []
   }
@@ -391,9 +408,9 @@ export class Room {
         const amount = Number(msg.amount)
         if (this.phase !== 'BETTING') return 'Selections are closed.'
         if (!(spot in SEGMENTS) || !CHIPS.includes(amount)) return 'Invalid selection.'
-        const stake = Math.min(amount, this.balance)
-        if (stake <= 0) return 'The team wallet is empty.'
-        this.balance -= stake
+        const stake = Math.min(amount, this.wallet.get(m.id))
+        if (stake <= 0) return 'You have no Chaos Credits left.'
+        this.wallet.add(m.id, -stake)
         m.bets[spot] += stake
         m.log.push({ spot, amount: stake })
         break
@@ -403,7 +420,7 @@ export class Room {
         const last = m.log.pop()
         if (!last) return null
         m.bets[last.spot] -= last.amount
-        this.balance += last.amount
+        this.wallet.add(m.id, last.amount)
         break
       }
       case 'clear':
@@ -415,9 +432,9 @@ export class Room {
         this.lock()
         return null
       case 'topup': {
-        const staked = SEGMENT_ORDER.reduce((n, t) => n + this.teamBets()[t], 0)
-        if (this.phase !== 'BETTING' || this.balance + staked >= 1) return null
-        this.balance = START_BALANCE
+        const staked = SEGMENT_ORDER.reduce((n, t) => n + m.bets[t], 0)
+        if (this.phase !== 'BETTING' || this.wallet.get(m.id) + staked >= 1) return null
+        this.wallet.set(m.id, START_BALANCE)
         break
       }
       case 'donFlip':
@@ -459,9 +476,9 @@ export class Room {
       phase: this.phase,
       phaseAge: now - this.phaseAt,
       round: this.round,
-      balance: this.balance,
-      bets: this.teamBets(),
-      myBets: this.members.get(userId)?.bets ?? emptyBets(),
+      // Private to this account: nobody else's wallet or bets are ever included.
+      balance: this.wallet.get(userId),
+      bets: this.members.get(userId)?.bets ?? emptyBets(),
       bettingLeft: this.bettingEndsAt - now,
       wheelAngle: this.wheelAngle,
       spin: plan(this.spin, this.spinAt),
@@ -470,7 +487,7 @@ export class Room {
       bonus,
       bonusSpin: plan(this.bonusSpin, this.bonusSpinAt),
       bonusMultiplier: this.bonusMultiplier,
-      lastWin: this.lastWin,
+      lastWin: this.members.get(userId)?.lastWin ?? 0,
     }
   }
 }

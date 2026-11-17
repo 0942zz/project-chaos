@@ -503,3 +503,19 @@ input[type='range'] { accent-color: var(--gold); width: 100%; }
   .roster-row span, .roster-row em { display: none; }
   .players, .stats { grid-template-columns: repeat(2, 1fr); }
 }
+
+/* ───────── individual wallets, leaderboard ───────── */
+.spot-return { position: absolute; left: 0; right: 0; bottom: -17px; font-size: 10px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--gold); white-space: nowrap; pointer-events: none; }
+.controls { margin-top: 22px; }
+.stats dd.gold { color: var(--gold); }
+.stats dd.neg { color: #e08a8a; }
+.tabs { margin-bottom: 20px; max-width: 340px; }
+.boards { display: grid; grid-template-columns: repeat(2, 1fr); gap: 22px 28px; }
+.board-list h3 { margin: 0 0 8px; font-size: 10px; font-weight: 700; letter-spacing: 0.18em; text-transform: uppercase; color: var(--muted); }
+.board-list ol { list-style: none; margin: 0; padding: 0; }
+.board-list li { display: flex; align-items: center; gap: 8px; padding: 5px 0; border-top: 1px solid rgba(255, 255, 255, 0.07); font-size: 13px; }
+.board-list li b { width: 16px; font-family: var(--display); color: var(--muted); }
+.board-list li span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.board-list li em { margin-left: auto; font-style: normal; font-family: var(--display); font-weight: 700; font-variant-numeric: tabular-nums; }
+.board-list li.me span, .board-list li.me em { color: var(--gold); }
+@media (max-width: 860px) { .boards { grid-template-columns: 1fr; } .controls { margin-top: 20px; } }

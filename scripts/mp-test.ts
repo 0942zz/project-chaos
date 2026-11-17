@@ -1,14 +1,18 @@
 /**
- * End-to-end multiplayer test: starts the real server and drives nine real WebSocket clients.
+ * End-to-end multiplayer test: starts the real server and drives real WebSocket clients.
  *   bun run scripts/mp-test.ts
- * Takes about three minutes (wheel spins and bonus animations run at their real length).
+ * Takes about two minutes (wheel spins and bonus animations run at their real length).
+ * All "devices" here are simulated connections from this PC, not physical phones or laptops.
  */
-import { CM_SEG_ANGLE, cmSegmentAt, type BonusState } from '../src/game/logic/bonus'
-import { GravityBoard, aimToX } from '../src/game/physics/gravityBoard'
+import { Database } from 'bun:sqlite'
+import { rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { simulateSpin } from '../src/game/physics/wheelSim'
 
 const PORT = 3555
 const BASE = `http://localhost:${PORT}`
+const DB_FILE = join(tmpdir(), `chaos-test-${Date.now()}.sqlite`)
 let failed = 0
 const ok = (name: string, cond: boolean, extra = '') => {
   if (!cond) failed++
@@ -17,7 +21,7 @@ const ok = (name: string, cond: boolean, extra = '') => {
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
 
 const server = Bun.spawn(['bun', 'server/index.ts'], {
-  env: { ...process.env, PORT: String(PORT), CHAOS_DB: ':memory:', CHAOS_FAST: '1', CHAOS_FORCE: '5,DON,TS,GD,CM' },
+  env: { ...process.env, PORT: String(PORT), CHAOS_DB: DB_FILE, CHAOS_FAST: '1', CHAOS_FORCE: '5,DON,1' },
   stdout: 'ignore',
   stderr: 'inherit',
 })
@@ -28,25 +32,25 @@ for (let i = 0; i < 50; i++) {
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type State = any
-class Client {
+const post = (path: string, body: object, token?: string) =>
+  fetch(BASE + path, { method: 'POST', headers: { 'content-type': 'application/json', ...(token ? { authorization: `Bearer ${token}` } : {}) }, body: JSON.stringify(body) })
+const getJson = async (path: string, token: string) => (await fetch(BASE + path, { headers: { authorization: `Bearer ${token}` } })).json() as Promise<State>
+
+/** One browser tab / device. Several of them may belong to the same account. */
+class Device {
   ws!: WebSocket
   state: State = null
   errors: string[] = []
-  token = ''
-  id = 0
-  constructor(readonly name: string) {}
-  async signUp() {
-    const r = await fetch(`${BASE}/api/register`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ username: this.name, password: 'secret12' }) })
-    const d = (await r.json()) as { token: string; user: { id: number } }
-    this.token = d.token
-    this.id = d.user.id
-  }
+  raw: string[] = []
+  constructor(readonly account: Account) {}
   connect(): Promise<void> {
     return new Promise((resolve) => {
-      this.ws = new WebSocket(`ws://localhost:${PORT}/ws?token=${this.token}`)
+      this.ws = new WebSocket(`ws://localhost:${PORT}/ws?token=${this.account.token}`)
       this.ws.onopen = () => resolve()
       this.ws.onmessage = (e) => {
-        const m = JSON.parse(String(e.data))
+        const text = String(e.data)
+        this.raw.push(text)
+        const m = JSON.parse(text)
         if (m.t === 'state') this.state = m
         else if (m.t === 'error') this.errors.push(m.message)
       }
@@ -54,6 +58,7 @@ class Client {
   }
   send(m: object) { this.ws.send(JSON.stringify(m)) }
   act(a: string, extra: object = {}) { this.send({ t: 'act', a, ...extra }) }
+  bet(spot: string, amount: number) { this.act('bet', { spot, amount }) }
   async until(pred: (s: State) => boolean, seconds = 60): Promise<boolean> {
     const end = Date.now() + seconds * 1000
     while (Date.now() < end) {
@@ -63,149 +68,147 @@ class Client {
     return false
   }
 }
+class Account {
+  token = ''
+  id = 0
+  constructor(readonly name: string) {}
+  async signUp() {
+    const d = (await (await post('/api/register', { username: this.name, password: 'secret12' })).json()) as { token: string; user: { id: number } }
+    this.token = d.token
+    this.id = d.user.id
+  }
+}
 
-const users = Array.from({ length: 9 }, (_, i) => new Client(`player${i + 1}`))
-for (const u of users) await u.signUp()
-const [host, p2, p3, p4, p5, p6, , p8, p9] = users
-const seated = users.slice(0, 8)
-const same = (f: (s: State) => unknown) => new Set(seated.map((u) => JSON.stringify(f(u.state)))).size === 1
+const accounts = Array.from({ length: 9 }, (_, i) => new Account(`player${i + 1}`))
+for (const a of accounts) await a.signUp()
+const [accA, accB, accC] = accounts
 
 /* ── accounts ── */
-const dup = await fetch(`${BASE}/api/register`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ username: 'PLAYER1', password: 'secret12' }) })
-ok('duplicate username rejected (case-insensitive)', dup.status === 409)
-const bad = await fetch(`${BASE}/api/login`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ username: 'player1', password: 'wrong-pass' }) })
-ok('wrong password rejected', bad.status === 401)
-ok('profile needs a session', (await fetch(`${BASE}/api/me`)).status === 401)
-const png = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=='
-const up = await fetch(`${BASE}/api/avatar`, { method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${host.token}` }, body: JSON.stringify({ image: png }) })
-const av = await fetch(`${BASE}/api/avatar/${host.id}`)
-ok('avatar upload and download', up.ok && av.ok && av.headers.get('content-type') === 'image/png')
+ok('duplicate username rejected (case-insensitive)', (await post('/api/register', { username: 'PLAYER1', password: 'secret12' })).status === 409)
+ok('wrong password rejected', (await post('/api/login', { username: 'player1', password: 'wrong-pass' })).status === 401)
+ok('profile and leaderboard need a session', (await fetch(`${BASE}/api/me`)).status === 401 && (await fetch(`${BASE}/api/leaderboard`)).status === 401)
+ok('new accounts start with 1,000 credits', (await getJson('/api/me', accC.token)).user.balance === 1000)
+
+// Scenario 2: different starting balances (set directly in the database, as an admin would).
+const db = new Database(DB_FILE)
+db.run('UPDATE users SET balance = 5000 WHERE id = ?', [accA.id])
+db.run('UPDATE users SET balance = 2000 WHERE id = ?', [accB.id])
+db.close()
 
 /* ── rooms ── */
-for (const u of users) await u.connect()
-host.send({ t: 'create' })
-await host.until((s) => !!s.room)
-const code: string = host.state.room.code
-ok('room created with a 4-letter code, creator is host', /^[A-Z]{4}$/.test(code) && host.state.room.hostId === host.id)
-for (const u of users.slice(1, 8)) u.send({ t: 'join', code: code.toLowerCase() })
-await host.until((s) => s.room.players.length === 8)
-ok('eight players seated', host.state.room.players.length === 8)
-p9.send({ t: 'join', code })
+const devices = accounts.map((a) => new Device(a))
+for (const d of devices) await d.connect()
+const [A, B, C] = devices
+A.send({ t: 'create' })
+await A.until((s) => !!s.room)
+const code: string = A.state.room.code
+for (const d of devices.slice(1, 8)) d.send({ t: 'join', code })
+await A.until((s) => s.room.players.length === 8)
+devices[8].send({ t: 'join', code })
 await sleep(400)
-ok('ninth player refused', p9.state === null && p9.errors.some((e) => e.includes('full')), p9.errors.join(' | '))
-p2.send({ t: 'start' })
+ok('1. different accounts join the same room; a ninth is refused', A.state.room.players.length === 8 && devices[8].state === null && devices[8].errors.some((e) => e.includes('full')))
+B.send({ t: 'start' })
 await sleep(300)
-ok('only the host can start', host.state.room.started === false && p2.errors.length === 1)
-host.send({ t: 'start' })
-for (const u of seated) await u.until((s) => s.phase === 'BETTING')
+ok('only the host can start', A.state.room.started === false && B.errors.length === 1)
+A.send({ t: 'start' })
+const table = [A, B, C]
+for (const d of table) await d.until((s) => s.phase === 'BETTING')
+ok('2. each account has its own starting balance', A.state.balance === 5000 && B.state.balance === 2000 && C.state.balance === 1000)
 
-/* ── round 1: number ── */
-host.act('bet', { spot: '5', amount: 10 })
-p2.act('bet', { spot: '5', amount: 25 })
-p2.act('bet', { spot: '1', amount: 5 })
-p3.act('bet', { spot: '5', amount: 7 })
-p4.act('bet', { spot: '2', amount: 100 })
-p4.act('undo')
-await sleep(400)
-ok('shared wallet debited once per valid bet', same((s) => s.balance) && host.state.balance === 960, `balance=${host.state.balance}`)
-ok('invalid chip rejected', p3.errors.length === 1)
-ok('each player sees own stake and the team total', p2.state.myBets['5'] === 25 && host.state.myBets['5'] === 10 && p8.state.bets['5'] === 35)
-p5.act('lock')
+/* ── round 1: forced "5" ── */
+A.bet('5', 100)
+A.bet('5', 100)
+A.bet('2', 25)
+await sleep(300)
+ok('3. player A places bets from A\'s wallet', A.state.balance === 4775 && A.state.bets['5'] === 200 && A.state.bets['2'] === 25)
+const bSees = JSON.stringify(B.state)
+ok('4. B receives nothing about A\'s bets or wallet', B.state.balance === 2000 && Object.values(B.state.bets).every((v) => v === 0) && !bSees.includes('4775') && !bSees.includes('myBets')
+  && B.state.room.players.every((p: State) => Object.keys(p).sort().join() === 'connected,hasAvatar,id,name'))
+B.bet('10', 10)
+B.bet('5', 7)
+await sleep(300)
+ok('5. player B places a different bet; invalid chip rejected', B.state.bets['10'] === 10 && B.state.balance === 1990 && A.state.bets['10'] === 0 && B.errors.length === 2)
+B.act('lock')
 await sleep(200)
-ok('only the host can spin early', p5.state.phase === 'BETTING')
-host.act('lock')
-for (const u of seated) await u.until((s) => s.phase === 'SPINNING', 10)
-p6.act('bet', { spot: '10', amount: 10 })
-const spin = host.state.spin
-for (const u of seated) await u.until((s) => s.phase === 'RESULT', 30)
-ok('late bet refused', p6.errors.some((e) => e.includes('closed')) && host.state.bets['10'] === 0)
-ok('all clients see the same result', same((s) => s.result) && host.state.result.type === '5', JSON.stringify(host.state.result))
-ok('client-side replay of the spin lands on the server result', simulateSpin(spin.startAngle, spin.omega0).finalIndex === host.state.result.index)
-ok('number payout credited once to the shared wallet', same((s) => s.balance) && host.state.balance === 960 + 35 * 6, `balance=${host.state.balance}`)
+ok('only the host can spin early', B.state.phase === 'BETTING')
+A.act('lock')
+for (const d of table) await d.until((s) => s.phase === 'SPINNING', 10)
+C.bet('5', 100)
+const spin = A.state.spin
+for (const d of table) await d.until((s) => s.phase === 'RESULT', 30)
+ok('late bet refused', C.errors.some((e) => e.includes('closed')) && C.state.balance === 1000)
+ok('6. both players see the same wheel result', JSON.stringify(A.state.result) === JSON.stringify(B.state.result) && A.state.result.type === '5'
+  && simulateSpin(spin.startAngle, spin.omega0).finalIndex === B.state.result.index, JSON.stringify(A.state.result))
+ok('7. only the account that backed the result is paid', A.state.balance === 4775 + 200 * 6 && A.state.lastWin === 1200 && B.state.lastWin === 0, `A=${A.state.balance}`)
+ok('8. A\'s winnings do not touch other balances', B.state.balance === 1990 && C.state.balance === 1000, `B=${B.state.balance} C=${C.state.balance}`)
 
-async function nextBonus(kind: string, bettor: Client): Promise<number> {
-  for (const u of seated) await u.until((s) => s.phase === 'BETTING' && s.result === null, 30)
-  const before = host.state.balance
-  bettor.act('bet', { spot: kind, amount: 10 })
-  await sleep(200)
-  host.act('lock')
-  for (const u of seated) await u.until((s) => s.phase === 'BONUS_ACTIVE', 45)
-  ok(`${kind}: bonus opened for everyone`, same((s) => s.bonus?.kind) && host.state.bonus?.kind === kind)
-  return before - 10
-}
-async function settle(kind: string, base: number): Promise<number> {
-  for (const u of seated) await u.until((s) => s.phase === 'BONUS_RESULT', 90)
-  const m: number = host.state.bonusMultiplier
-  ok(`${kind}: same multiplier and wallet on every client`, same((s) => [s.bonusMultiplier, s.balance]) && host.state.balance === base + 10 * (m + 1), `mult=${m} balance=${host.state.balance}`)
-  return m
-}
+/* ── round 2: forced DOUBLE; same account on two devices; reconnection ── */
+const A2 = new Device(accA)
+await A2.connect()
+A2.send({ t: 'join', code })
+for (const d of [...table, A2]) await d.until((s) => s.phase === 'BETTING' && s.result === null, 30)
+ok('9a. second device of the same account sees the same wallet', A2.state.balance === 5975 && A.state.room.players.length === 8)
+A.bet('DON', 100)
+await A2.until((s) => s.bets.DON === 100, 3)
+A2.bet('DON', 25)
+await A.until((s) => s.bets.DON === 125, 3)
+A2.act('undo')
+await A.until((s) => s.bets.DON === 100, 3)
+ok('9b. bets and balance stay in sync across the two devices', A.state.bets.DON === 100 && A2.state.bets.DON === 100 && A.state.balance === 5875 && A2.state.balance === 5875)
+ok('9c. another account still sees none of it', B.state.bets.DON === 0 && B.state.balance === 1990)
+B.bet('DON', 10)
+await sleep(200)
+A.act('lock')
+await B.until((s) => s.phase === 'SPINNING', 10)
+// B's connection drops mid-spin and comes back; A closes one of two devices.
+B.ws.close()
+A.ws.close()
+await sleep(600)
+ok('one of two devices closing does not take the account offline', A2.state.room.players.find((p: State) => p.id === accA.id).connected === true
+  && A2.state.room.players.find((p: State) => p.id === accB.id).connected === false && A2.state.room.hostId === accA.id)
+await B.connect()
+B.send({ t: 'join', code })
+await B.until((s) => s.phase !== undefined && s.room.players.find((p: State) => p.id === accB.id).connected, 5)
+ok('10a. reconnection restores the bet without duplicating it', B.state.bets.DON === 10 && B.state.balance === 1980)
+for (const d of [A2, B, C]) await d.until((s) => s.phase === 'BONUS_ACTIVE', 45)
+ok('same bonus opens for everyone', A2.state.bonus.kind === 'DON' && B.state.bonus.kind === 'DON' && JSON.stringify(A2.state.bonus) === JSON.stringify(C.state.bonus))
+C.act('donFlip')
+for (const d of [A2, B, C]) await d.until((s) => s.phase === 'BONUS_RESULT', 60)
+const m: number = A2.state.bonusMultiplier
+ok('same bonus outcome for everyone', B.state.bonusMultiplier === m && C.state.bonusMultiplier === m, `mult=${m}`)
+ok('10b. rewards are paid once, each to its own wallet', A2.state.balance === 5875 + 100 * (m + 1) && B.state.balance === 1980 + 10 * (m + 1) && C.state.balance === 1000,
+  `A=${A2.state.balance} B=${B.state.balance}`)
 
-/* ── DOUBLE ── */
-let base = await nextBonus('DON', p3)
-p4.act('donFlip')
-p5.act('donFlip')
-let m = await settle('DON', base)
-const don = host.state.bonus as Extract<BonusState, { kind: 'DON' }>
-ok('DON: pays the face that landed', m === (don.outcome === 'SUN' ? don.sun : don.moon))
+/* ── round 3: forced "1"; wallet floor ── */
+for (const d of [A2, B, C]) await d.until((s) => s.phase === 'BETTING' && s.result === null, 30)
+for (let i = 0; i < 12; i++) C.bet('10', 100)
+await sleep(400)
+ok('a wallet cannot go below zero', C.state.balance === 0 && C.state.bets['10'] === 1000 && C.errors.some((e) => e.includes('no Chaos Credits')))
+A2.act('lock')
+for (const d of [A2, B, C]) await d.until((s) => s.phase === 'RESULT', 40)
+ok('losing stake is gone, others untouched', C.state.balance === 0 && B.state.balance === 1980 + 10 * (m + 1))
+for (const d of [A2, B, C]) await d.until((s) => s.phase === 'BETTING' && s.result === null, 30)
+C.act('topup')
+await sleep(300)
+ok('an empty wallet can be refilled to 1,000; a funded one cannot', C.state.balance === 1000 && (B.act('topup'), await sleep(200), B.state.balance === 1980 + 10 * (m + 1)))
 
-/* ── TREASURE ── */
-base = await nextBonus('TS', p2)
-await host.until((s) => s.bonus.status === 'pick', 15)
-ok('TS: hidden multipliers are not sent before the pick', p8.state.bonus.values.every((v: number) => v === 0))
-p5.act('tsPick', { index: 7 })
-p6.act('tsPick', { index: 30 })
-m = await settle('TS', base)
-ok('TS: first pick wins and pays that target', host.state.bonus.pick === 7 && host.state.bonus.values[7] === m)
-
-/* ── GRAVITY ── */
-base = await nextBonus('GD', p6)
-p2.act('gdDrop', { aim: 0.31 })
-let lastDrop: State = null
-const watch = setInterval(() => { if (host.state?.bonus?.kind === 'GD' && host.state.bonus.status === 'dropping') lastDrop = host.state.bonus }, 30)
-m = await settle('GD', base)
-clearInterval(watch)
-const gd = host.state.bonus as Extract<BonusState, { kind: 'GD' }>
-ok('GD: pays the slot the ball landed in', gd.slot !== null && gd.slots[gd.slot] === m, `doubles=${gd.doubles}`)
-const board = await GravityBoard.create()
-board.drop(aimToX(lastDrop.aim) + lastDrop.jitter)
-for (let i = 0; i < 240 * 60 && board.landedSlot === null; i++) board.advance(1 / 240)
-ok('GD: client-side physics replay lands in the server slot', board.landedSlot === gd.slot, `replay=${board.landedSlot} server=${gd.slot}`)
-
-/* ── CHAOS ── */
-base = await nextBonus('CM', p4)
-p6.act('cmPick', { index: 2 })
-p3.act('cmPick', { index: 0 })
-for (const u of seated) await u.until((s) => s.phase === 'BONUS_RESULT', 120)
-const cm = host.state.bonus as Extract<BonusState, { kind: 'CM' }>
-const bs = host.state.bonusSpin
-const replay = simulateSpin(bs.startAngle, bs.omega0, CM_SEG_ANGLE)
-ok('CM: first pointer pick wins', cm.pick === 2)
-ok('CM: client-side replay of the grand wheel matches the server', cmSegmentAt(replay.finalAngle, 2) === cm.landed![2])
-m = await settle('CM', base)
-ok('CM: pays the segment under the chosen pointer', cm.wheel[cm.landed![2]] === m, `boosts=${cm.boosts}`)
-
-/* ── disconnection ── */
-host.ws.close()
-await p2.until((s) => s.room.hostId !== host.id && s.room.players.find((p: State) => p.id === host.id)?.connected === false, 5)
-ok('host disconnect: marked offline, host role passes on', p2.state.room.hostId !== host.id && p2.state.room.players.length === 8)
-await host.connect()
-host.send({ t: 'join', code })
-await p2.until((s) => s.room.players.find((p: State) => p.id === host.id)?.connected === true, 5)
-ok('reconnect keeps the seat', p2.state.room.players.find((p: State) => p.id === host.id)?.connected === true && host.state?.room.code === code)
-p8.send({ t: 'leave' })
-await p2.until((s) => s.room.players.length === 7, 5)
-p9.errors = []
-p9.send({ t: 'join', code })
-await p9.until((s) => !!s.room, 5)
-ok('a freed seat can be taken', p9.state?.room.players.length === 8)
-const round = p2.state.round
-await p2.until((s) => s.round > round, 60)
-ok('rounds keep running after players come and go', p2.state.round > round)
-
-/* ── persistence ── */
-const me = (await (await fetch(`${BASE}/api/me`, { headers: { authorization: `Bearer ${p2.token}` } })).json()) as { user: { stats: { rounds: number; staked: number } }; history: unknown[] }
-ok('stats and history recorded per player', me.user.stats.rounds === 2 && me.user.stats.staked === 40 && me.history.length === 2, JSON.stringify(me.user.stats))
+/* ── statistics, history, leaderboard ── */
+const meA = await getJson('/api/me', accA.token)
+const meB = await getJson('/api/me', accB.token)
+const meC = await getJson('/api/me', accC.token)
+ok('wallet is stored per account on the server', meA.user.balance === A2.state.balance && meB.user.balance === B.state.balance)
+ok('11a. statistics per account', meA.user.stats.games === 2 && meA.user.stats.victories === 2 && meA.user.stats.wagered === 325
+  && meA.user.stats.net === 1200 + 100 * (m + 1) - 325 && meA.user.stats.biggestWin === 1200 && meA.user.stats.winPct === 100
+  && meB.user.stats.games === 2 && meB.user.stats.victories === 1 && meB.user.stats.losses === 1 && meB.user.stats.winPct === 50
+  && meC.user.stats.games === 1 && meC.user.stats.losses === 1 && meC.user.stats.net === -1000, JSON.stringify(meB.user.stats))
+ok('history is private to the account', meB.history.length === 2 && meA.history.length === 2 && meC.history.length === 1)
+const lb = await getJson('/api/leaderboard', accB.token)
+ok('11b. leaderboards', lb.balance[0].id === accA.id && lb.balance[0].value === meA.user.balance && lb.net[0].id === accA.id
+  && lb.net.at(-1).id === accC.id && lb.victories[0].id === accA.id && lb.victories[0].value === 2 && lb.winPct.length === 0,
+  `balance top=${lb.balance[0].name} ${lb.balance[0].value}`)
 
 server.kill()
+await sleep(300)
+for (const f of [DB_FILE, `${DB_FILE}-wal`, `${DB_FILE}-shm`]) rmSync(f, { force: true })
 console.log(failed === 0 ? '\nAll multiplayer checks passed.' : `\n${failed} check(s) FAILED.`)
 process.exit(failed === 0 ? 0 : 1)
